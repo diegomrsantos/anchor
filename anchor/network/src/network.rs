@@ -1,3 +1,4 @@
+use std::net::Ipv4Addr;
 use crate::behaviour::AnchorBehaviour;
 use crate::behaviour::AnchorBehaviourEvent;
 use crate::keypair_utils::load_private_key;
@@ -15,8 +16,13 @@ use lighthouse_network::discv5::enr::k256::sha2::{Digest, Sha256};
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::pin::Pin;
 use std::time::Duration;
+use discv5::Discv5;
+use discv5::enr::Enr;
+use lighthouse_network::CombinedKeyExt;
+use lighthouse_network::discovery::CombinedKey;
 use task_executor::TaskExecutor;
 use tracing::{info, log};
+use crate::discovery::{build_enr, Discovery};
 
 pub struct Network {
     swarm: Swarm<AnchorBehaviour>,
@@ -29,7 +35,7 @@ impl Network {
     pub async fn try_new(config: &Config, executor: TaskExecutor) -> Result<Network, String> {
         let local_keypair: Keypair = load_private_key(&config.network_dir);
         let transport = build_transport(local_keypair.clone(), !config.disable_quic_support);
-        let behaviour = build_anchor_behaviour(local_keypair.clone());
+        let behaviour = build_anchor_behaviour(local_keypair.clone(), config);
         let peer_id = local_keypair.public().to_peer_id();
 
         let mut network = Network {
@@ -102,7 +108,7 @@ impl Network {
     }
 }
 
-fn build_anchor_behaviour(local_keypair: Keypair) -> AnchorBehaviour {
+fn build_anchor_behaviour(local_keypair: Keypair, network_config: &Config) -> AnchorBehaviour {
     // TODO setup discv5
     let identify = {
         let local_public_key = local_keypair.public();
@@ -140,12 +146,25 @@ fn build_anchor_behaviour(local_keypair: Keypair) -> AnchorBehaviour {
         .unwrap();
 
     let gossipsub =
-        gossipsub::Behaviour::new(MessageAuthenticity::Signed(local_keypair), config).unwrap();
+        gossipsub::Behaviour::new(MessageAuthenticity::Signed(local_keypair.clone()), config).unwrap();
+
+    let discv5_listen_config =
+        discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
+
+    // discv5 configuration
+    let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config)
+        .build();
+
+    // convert the keypair into an ENR key
+    let enr_key: CombinedKey = CombinedKey::from_libp2p(local_keypair).unwrap();
+    let enr = build_enr(&enr_key, network_config).unwrap();
+    let discv5 = Discv5::new(enr, enr_key, discv5_config).unwrap();
 
     AnchorBehaviour {
         identify,
         ping: ping::Behaviour::default(),
         gossipsub,
+        discovery: Discovery { discv5 },
     }
 }
 
