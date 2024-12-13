@@ -1,7 +1,7 @@
+use crate::discovery::Discovery;
 use discv5::Discv5;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{gossipsub, identify, ping};
-use crate::discovery::Discovery;
 
 #[derive(NetworkBehaviour)]
 pub struct AnchorBehaviour {

@@ -1,9 +1,11 @@
-use std::net::Ipv4Addr;
 use crate::behaviour::AnchorBehaviour;
 use crate::behaviour::AnchorBehaviourEvent;
+use crate::discovery::{build_enr, Discovery};
 use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
+use discv5::enr::Enr;
+use discv5::Discv5;
 use futures::StreamExt;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::Boxed;
@@ -12,17 +14,15 @@ use libp2p::identity::Keypair;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
 use libp2p::{futures, gossipsub, identify, ping, PeerId, Swarm, SwarmBuilder};
+use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::discv5::enr::k256::sha2::{Digest, Sha256};
+use lighthouse_network::CombinedKeyExt;
+use std::net::Ipv4Addr;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::pin::Pin;
 use std::time::Duration;
-use discv5::Discv5;
-use discv5::enr::Enr;
-use lighthouse_network::CombinedKeyExt;
-use lighthouse_network::discovery::CombinedKey;
 use task_executor::TaskExecutor;
 use tracing::{info, log};
-use crate::discovery::{build_enr, Discovery};
 
 pub struct Network {
     swarm: Swarm<AnchorBehaviour>,
@@ -146,14 +146,13 @@ fn build_anchor_behaviour(local_keypair: Keypair, network_config: &Config) -> An
         .unwrap();
 
     let gossipsub =
-        gossipsub::Behaviour::new(MessageAuthenticity::Signed(local_keypair.clone()), config).unwrap();
+        gossipsub::Behaviour::new(MessageAuthenticity::Signed(local_keypair.clone()), config)
+            .unwrap();
 
-    let discv5_listen_config =
-        discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
+    let discv5_listen_config = discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
 
     // discv5 configuration
-    let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config)
-        .build();
+    let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config).build();
 
     // convert the keypair into an ENR key
     let enr_key: CombinedKey = CombinedKey::from_libp2p(local_keypair).unwrap();
