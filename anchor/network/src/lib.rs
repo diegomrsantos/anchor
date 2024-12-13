@@ -6,6 +6,7 @@ mod keypair_utils;
 mod network;
 mod transport;
 mod types;
+mod discovery;
 
 pub use config::Config;
 pub use lighthouse_network::{ListenAddr, ListenAddress};
