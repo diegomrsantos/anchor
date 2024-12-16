@@ -5,20 +5,23 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use discv5::{Discv5, Enr};
 use discv5::enr::{CombinedKey, NodeId};
 use discv5::libp2p_identity::{Keypair, PeerId};
 use discv5::multiaddr::Multiaddr;
-use futures::{StreamExt, TryFutureExt};
-use futures::FutureExt;
+use discv5::{Discv5, Enr};
 use futures::stream::FuturesUnordered;
-use libp2p::core::Endpoint;
+use futures::FutureExt;
+use futures::{StreamExt, TryFutureExt};
 use libp2p::core::transport::PortUse;
-use libp2p::swarm::{ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm};
+use libp2p::core::Endpoint;
 use libp2p::swarm::dummy::ConnectionHandler;
-use lighthouse_network::{CombinedKeyExt, Subnet};
-use lighthouse_network::discovery::DiscoveredPeers;
+use libp2p::swarm::{
+    ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+    THandlerOutEvent, ToSwarm,
+};
 use lighthouse_network::discovery::enr_ext::{QUIC6_ENR_KEY, QUIC_ENR_KEY};
+use lighthouse_network::discovery::DiscoveredPeers;
+use lighthouse_network::{CombinedKeyExt, Subnet};
 use tokio::sync::mpsc;
 
 use crate::Config;
@@ -86,11 +89,7 @@ pub struct Discovery {
 }
 
 impl Discovery {
-    pub async fn new(
-        local_keypair: Keypair,
-        network_config: &Config,
-    ) -> Result<Self, String> {
-
+    pub async fn new(local_keypair: Keypair, network_config: &Config) -> Result<Self, String> {
         let _enr_dir = match network_config.network_dir.to_str() {
             Some(path) => String::from(path),
             None => String::from(""),
@@ -101,7 +100,8 @@ impl Discovery {
         //       "quic4" => ?local_enr.quic4(), "quic6" => ?local_enr.quic6()
         // );
 
-        let discv5_listen_config = discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
+        let discv5_listen_config =
+            discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
 
         // discv5 configuration
         let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config).build();
@@ -296,7 +296,7 @@ impl Discovery {
                         //debug!(self.log, "Discovery query yielded no results.");
                     }
                     Ok(r) => {
-                       // debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
+                        // debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
                         let results = r
                             .into_iter()
                             .map(|enr| {
@@ -327,7 +327,6 @@ impl Discovery {
         }
         None
     }
-
 }
 
 impl NetworkBehaviour for Discovery {
@@ -335,22 +334,41 @@ impl NetworkBehaviour for Discovery {
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = DiscoveredPeers;
 
-    fn handle_established_inbound_connection(&mut self, _connection_id: ConnectionId, _peer: PeerId, _local_addr: &Multiaddr, _remote_addr: &Multiaddr) -> Result<THandler<Self>, ConnectionDenied> {
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _local_addr: &Multiaddr,
+        _remote_addr: &Multiaddr,
+    ) -> Result<THandler<Self>, ConnectionDenied> {
         Ok(ConnectionHandler)
     }
 
-    fn handle_established_outbound_connection(&mut self, _connection_id: ConnectionId, _peer: PeerId, _addr: &Multiaddr, _role_override: Endpoint, _port_use: PortUse) -> Result<THandler<Self>, ConnectionDenied> {
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _addr: &Multiaddr,
+        _role_override: Endpoint,
+        _port_use: PortUse,
+    ) -> Result<THandler<Self>, ConnectionDenied> {
         Ok(ConnectionHandler)
     }
 
-    fn on_swarm_event(&mut self, _event: FromSwarm) {
+    fn on_swarm_event(&mut self, _event: FromSwarm) {}
 
+    fn on_connection_handler_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _event: THandlerOutEvent<Self>,
+    ) {
     }
 
-    fn on_connection_handler_event(&mut self, _peer_id: PeerId, _connection_id: ConnectionId, _event: THandlerOutEvent<Self>) {
-    }
-
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -368,10 +386,7 @@ impl NetworkBehaviour for Discovery {
 }
 
 /// Builds a anchor ENR given a `network::Config`.
-pub fn build_enr(
-    enr_key: &CombinedKey,
-    config: &Config,
-) -> Result<Enr, String> {
+pub fn build_enr(enr_key: &CombinedKey, config: &Config) -> Result<Enr, String> {
     let mut builder = discv5::enr::Enr::builder();
     let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
 

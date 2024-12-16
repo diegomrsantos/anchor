@@ -3,13 +3,13 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use futures::StreamExt;
-use libp2p::{futures, gossipsub, identify, PeerId, ping, Swarm, SwarmBuilder};
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::Boxed;
 use libp2p::gossipsub::{MessageAuthenticity, ValidationMode};
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
+use libp2p::{futures, gossipsub, identify, ping, PeerId, Swarm, SwarmBuilder};
 use lighthouse_network::discovery::DiscoveredPeers;
 use lighthouse_network::discv5::enr::k256::sha2::{Digest, Sha256};
 use task_executor::TaskExecutor;
@@ -17,10 +17,10 @@ use tracing::{info, log};
 
 use crate::behaviour::AnchorBehaviour;
 use crate::behaviour::AnchorBehaviourEvent;
-use crate::Config;
 use crate::discovery::{Discovery, FIND_NODE_QUERY_CLOSEST_PEERS};
 use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
+use crate::Config;
 
 pub struct Network {
     swarm: Swarm<AnchorBehaviour>,
@@ -115,7 +115,10 @@ impl Network {
     }
 }
 
-async fn build_anchor_behaviour(local_keypair: Keypair, network_config: &Config) -> AnchorBehaviour {
+async fn build_anchor_behaviour(
+    local_keypair: Keypair,
+    network_config: &Config,
+) -> AnchorBehaviour {
     // TODO setup discv5
     let identify = {
         let local_public_key = local_keypair.public();
@@ -158,10 +161,9 @@ async fn build_anchor_behaviour(local_keypair: Keypair, network_config: &Config)
 
     let discovery = {
         // Build and start the discovery sub-behaviour
-        let mut discovery = Discovery::new(
-            local_keypair.clone(),
-            &network_config,
-        ).await.unwrap();
+        let mut discovery = Discovery::new(local_keypair.clone(), &network_config)
+            .await
+            .unwrap();
         // start searching for peers
         discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
         discovery
@@ -232,8 +234,8 @@ fn build_swarm(
 mod test {
     use task_executor::TaskExecutor;
 
-    use crate::Config;
     use crate::network::Network;
+    use crate::Config;
 
     #[tokio::test]
     async fn create_network() {
