@@ -1,28 +1,26 @@
-use crate::behaviour::AnchorBehaviour;
-use crate::behaviour::AnchorBehaviourEvent;
-use crate::discovery::{build_enr, Discovery};
-use crate::keypair_utils::load_private_key;
-use crate::transport::build_transport;
-use crate::Config;
-use discv5::enr::Enr;
-use discv5::Discv5;
+use std::num::{NonZeroU8, NonZeroUsize};
+use std::pin::Pin;
+use std::time::Duration;
+
 use futures::StreamExt;
+use libp2p::{futures, gossipsub, identify, PeerId, ping, Swarm, SwarmBuilder};
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::Boxed;
 use libp2p::gossipsub::{MessageAuthenticity, ValidationMode};
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
-use libp2p::{futures, gossipsub, identify, ping, PeerId, Swarm, SwarmBuilder};
-use lighthouse_network::discovery::CombinedKey;
+use lighthouse_network::discovery::DiscoveredPeers;
 use lighthouse_network::discv5::enr::k256::sha2::{Digest, Sha256};
-use lighthouse_network::CombinedKeyExt;
-use std::net::Ipv4Addr;
-use std::num::{NonZeroU8, NonZeroUsize};
-use std::pin::Pin;
-use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{info, log};
+
+use crate::behaviour::AnchorBehaviour;
+use crate::behaviour::AnchorBehaviourEvent;
+use crate::Config;
+use crate::discovery::{Discovery, FIND_NODE_QUERY_CLOSEST_PEERS};
+use crate::keypair_utils::load_private_key;
+use crate::transport::build_transport;
 
 pub struct Network {
     swarm: Swarm<AnchorBehaviour>,
@@ -35,7 +33,7 @@ impl Network {
     pub async fn try_new(config: &Config, executor: TaskExecutor) -> Result<Network, String> {
         let local_keypair: Keypair = load_private_key(&config.network_dir);
         let transport = build_transport(local_keypair.clone(), !config.disable_quic_support);
-        let behaviour = build_anchor_behaviour(local_keypair.clone(), config);
+        let behaviour = build_anchor_behaviour(local_keypair.clone(), config).await;
         let peer_id = local_keypair.public().to_peer_id();
 
         let mut network = Network {
@@ -91,12 +89,21 @@ impl Network {
                             AnchorBehaviourEvent::Gossipsub(_ge) => {
                                 // TODO handle gossipsub events
                             },
+                            // Inform the peer manager about discovered peers.
+                            //
+                            // The peer manager will subsequently decide which peers need to be dialed and then dial
+                            // them.
+                            AnchorBehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
+                                //self.peer_manager_mut().peers_discovered(peers);
+                                log::debug!("Discovered peers: {:?}", peers);
+                            }
                             // TODO handle other behaviour events
                             _ => {
                                 log::debug!("Unhandled behaviour event: {:?}", behaviour_event);
                             }
                         },
                         // TODO handle other swarm events
+                        SwarmEvent::NewListenAddr { .. } => {},
                         _ => {
                             log::debug!("Unhandled swarm event: {:?}", swarm_message);
                         }
@@ -108,7 +115,7 @@ impl Network {
     }
 }
 
-fn build_anchor_behaviour(local_keypair: Keypair, network_config: &Config) -> AnchorBehaviour {
+async fn build_anchor_behaviour(local_keypair: Keypair, network_config: &Config) -> AnchorBehaviour {
     // TODO setup discv5
     let identify = {
         let local_public_key = local_keypair.public();
@@ -149,21 +156,22 @@ fn build_anchor_behaviour(local_keypair: Keypair, network_config: &Config) -> An
         gossipsub::Behaviour::new(MessageAuthenticity::Signed(local_keypair.clone()), config)
             .unwrap();
 
-    let discv5_listen_config = discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
-
-    // discv5 configuration
-    let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config).build();
-
-    // convert the keypair into an ENR key
-    let enr_key: CombinedKey = CombinedKey::from_libp2p(local_keypair).unwrap();
-    let enr = build_enr(&enr_key, network_config).unwrap();
-    let discv5 = Discv5::new(enr, enr_key, discv5_config).unwrap();
+    let discovery = {
+        // Build and start the discovery sub-behaviour
+        let mut discovery = Discovery::new(
+            local_keypair.clone(),
+            &network_config,
+        ).await.unwrap();
+        // start searching for peers
+        discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
+        discovery
+    };
 
     AnchorBehaviour {
         identify,
         ping: ping::Behaviour::default(),
         gossipsub,
-        discovery: Discovery { discv5 },
+        discovery,
     }
 }
 
@@ -222,9 +230,10 @@ fn build_swarm(
 
 #[cfg(test)]
 mod test {
-    use crate::network::Network;
-    use crate::Config;
     use task_executor::TaskExecutor;
+
+    use crate::Config;
+    use crate::network::Network;
 
     #[tokio::test]
     async fn create_network() {
