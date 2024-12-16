@@ -2,7 +2,7 @@
 // use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 
 use crate::cli::Anchor;
-use network::{ListenAddr, ListenAddress};
+use network::{Enr, ListenAddr, ListenAddress};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -130,6 +130,12 @@ pub fn from_cli(cli_args: &Anchor) -> Result<Config, String> {
      * Network related
      */
     config.network.listen_addresses = parse_listening_addresses(cli_args)?;
+
+    let mut enrs: Vec<Enr> = vec![];
+    if let Ok(enr) = "enr:-Li4QFIQzamdvTxGJhvcXG_DFmCeyggSffDnllY5DiU47pd_K_1MRnSaJimWtfKJ-MD46jUX9TwgW5Jqe0t4pH41RYWGAYuFnlyth2F0dG5ldHOIAAAAAAAAAACEZXRoMpD1pf1CAAAAAP__________gmlkgnY0gmlwhCLdu_SJc2VjcDI1NmsxoQN4v-N9zFYwEqzGPBBX37q24QPFvAVUtokIo1fblIsmTIN0Y3CCE4uDdWRwgg-j".parse::<Enr>() {
+        enrs.push(enr.clone());
+    }
+    config.network.boot_nodes_enr = enrs;
 
     config.beacon_nodes_tls_certs = cli_args.beacon_nodes_tls_certs.clone();
     config.execution_nodes_tls_certs = cli_args.execution_nodes_tls_certs.clone();
