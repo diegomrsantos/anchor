@@ -16,7 +16,7 @@ use std::num::{NonZeroU8, NonZeroUsize};
 use std::pin::Pin;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tracing::info;
+use tracing::{info, log};
 
 pub struct Network {
     swarm: Swarm<AnchorBehaviour>,
@@ -86,10 +86,14 @@ impl Network {
                                 // TODO handle gossipsub events
                             },
                             // TODO handle other behaviour events
-                            _ => {}
+                            _ => {
+                                log::debug!("Unhandled behaviour event: {:?}", behaviour_event);
+                            }
                         },
                         // TODO handle other swarm events
-                        _ => todo!()
+                        _ => {
+                            log::debug!("Unhandled swarm event: {:?}", swarm_message);
+                        }
                     }
                 }
                 // TODO match input channels
