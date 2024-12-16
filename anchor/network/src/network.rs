@@ -86,7 +86,7 @@ impl Network {
                                 // TODO handle gossipsub events
                             },
                             // TODO handle other behaviour events
-                            _ => todo!()
+                            _ => {}
                         },
                         // TODO handle other swarm events
                         _ => todo!()
