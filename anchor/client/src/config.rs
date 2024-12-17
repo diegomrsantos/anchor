@@ -2,7 +2,7 @@
 // use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 
 use crate::cli::Anchor;
-use network::{Enr, ListenAddr, ListenAddress};
+use network::{ListenAddr, ListenAddress};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -131,11 +131,24 @@ pub fn from_cli(cli_args: &Anchor) -> Result<Config, String> {
      */
     config.network.listen_addresses = parse_listening_addresses(cli_args)?;
 
-    let mut enrs: Vec<Enr> = vec![];
-    if let Ok(enr) = "enr:-Li4QFIQzamdvTxGJhvcXG_DFmCeyggSffDnllY5DiU47pd_K_1MRnSaJimWtfKJ-MD46jUX9TwgW5Jqe0t4pH41RYWGAYuFnlyth2F0dG5ldHOIAAAAAAAAAACEZXRoMpD1pf1CAAAAAP__________gmlkgnY0gmlwhCLdu_SJc2VjcDI1NmsxoQN4v-N9zFYwEqzGPBBX37q24QPFvAVUtokIo1fblIsmTIN0Y3CCE4uDdWRwgg-j".parse::<Enr>() {
-        enrs.push(enr.clone());
+    for addr in cli_args.boot_nodes_enr.clone() {
+        match addr.parse() {
+            Ok(enr) => config.network.boot_nodes_enr.push(enr),
+            Err(_) => {
+                // parsing as ENR failed, try as Multiaddr
+                // let multi: Multiaddr = addr
+                //     .parse()
+                //     .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
+                // if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
+                //     slog::error!(log, "Missing UDP in Multiaddr {}", multi.to_string());
+                // }
+                // if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
+                //     slog::error!(log, "Missing P2P in Multiaddr {}", multi.to_string());
+                // }
+                // multiaddrs.push(multi);
+            }
+        }
     }
-    config.network.boot_nodes_enr = enrs;
 
     config.beacon_nodes_tls_certs = cli_args.beacon_nodes_tls_certs.clone();
     config.execution_nodes_tls_certs = cli_args.execution_nodes_tls_certs.clone();
