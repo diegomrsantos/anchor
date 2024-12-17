@@ -111,7 +111,6 @@ impl Network {
                             }
                         },
                         // TODO handle other swarm events
-                        SwarmEvent::NewListenAddr { .. } => {},
                         _ => {
                             log::debug!("Unhandled swarm event: {:?}", swarm_message);
                         }
