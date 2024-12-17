@@ -23,7 +23,9 @@ use lighthouse_network::discovery::enr_ext::{QUIC6_ENR_KEY, QUIC_ENR_KEY};
 use lighthouse_network::discovery::DiscoveredPeers;
 use lighthouse_network::{CombinedKeyExt, Subnet};
 use tokio::sync::mpsc;
-use tracing::log;
+use tracing::{debug, error, warn};
+
+use lighthouse_network::EnrExt;
 
 use crate::Config;
 
@@ -96,9 +98,10 @@ impl Discovery {
             None => String::from(""),
         };
 
-        // TODO info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
-        //       "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6(),
-        //       "quic4" => ?local_enr.quic4(), "quic6" => ?local_enr.quic6()
+        // info!("enr" = local_enr.to_base64(), "seq" = local_enr.seq(), "id" = local_enr.node_id(),
+        //       "ip4" = ?local_enr.ip4(), "udp4" = ?local_enr.udp4(), "tcp4" = ?local_enr.tcp4(), "tcp6" = ?local_enr.tcp6(), "udp6" = ?local_enr.udp6(),
+        //       "quic4" = ?local_enr.quic4(), "quic6" = ?local_enr.quic6(),
+        //     "ENR Initialised"
         // );
 
         let discv5_listen_config =
@@ -120,32 +123,30 @@ impl Discovery {
             //     // If we are a boot node, ignore adding it to the routing table
             //     continue;
             // }
-            // TODO debug!(
-            //     log,
-            //     "Adding node to routing table";
-            //     "node_id" => %bootnode_enr.node_id(),
-            //     "peer_id" => %bootnode_enr.peer_id(),
-            //     "ip" => ?bootnode_enr.ip4(),
-            //     "udp" => ?bootnode_enr.udp4(),
-            //     "tcp" => ?bootnode_enr.tcp4(),
-            //     "quic" => ?bootnode_enr.quic4()
-            // );
+            debug!(
+                node_id = %bootnode_enr.node_id(),
+                peer_id = %bootnode_enr.peer_id(),
+                ip = ?bootnode_enr.ip4(),
+                udp = ?bootnode_enr.udp4(),
+                tcp = ?bootnode_enr.tcp4(),
+                quic = ?bootnode_enr.quic4(),
+                "Adding node to routing table",
+            );
 
-            //let repr = bootnode_enr.to_string();
-            let _ = discv5.add_enr(bootnode_enr).map_err(|_e| {
-                // TODO  error!(
-                //     log,
-                //     "Could not add peer to the local routing table";
-                //     "addr" => repr,
-                //     "error" => e.to_string(),
-                // )
+            let repr = bootnode_enr.to_string();
+            let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
+                error!(
+                    addr = repr,
+                    error = e.to_string(),
+                    "Could not add peer to the local routing table"
+                )
             });
         }
 
         // Start the discv5 service and obtain an event stream
         let event_stream = if !network_config.disable_discovery {
             discv5.start().map_err(|e| e.to_string()).await?;
-            // TODO debug!(log, "Discovery service started");
+            debug!("Discovery service started");
             EventStream::Awaiting(Box::pin(discv5.event_stream()))
         } else {
             EventStream::InActive
@@ -170,30 +171,32 @@ impl Discovery {
             })
             .collect::<FuturesUnordered<_>>();
 
-        while let Some((result, _original_addr)) = fut_coll.next().await {
+        while let Some((result, original_addr)) = fut_coll.next().await {
             match result {
                 Ok(enr) => {
-                    // TODO debug!(
-                    //     log,
-                    //     "Adding node to routing table";
-                    //     "node_id" => %enr.node_id(),
-                    //     "peer_id" => %enr.peer_id(),
-                    //     "ip" => ?enr.ip4(),
-                    //     "udp" => ?enr.udp4(),
-                    //     "tcp" => ?enr.tcp4(),
-                    //     "quic" => ?enr.quic4()
-                    // );
-                    let _ = discv5.add_enr(enr).map_err(|_e| {
-                        // TODO error!(
-                        //     log,
-                        //     "Could not add peer to the local routing table";
-                        //     "addr" => original_addr.to_string(),
-                        //     "error" => e.to_string(),
-                        // )
+                    debug!(
+                        node_id = %enr.node_id(),
+                        peer_id = %enr.peer_id(),
+                        ip = ?enr.ip4(),
+                        udp = ?enr.udp4(),
+                        tcp = ?enr.tcp4(),
+                        quic = ?enr.quic4(),
+                         "Adding node to routing table"
+                    );
+                    let _ = discv5.add_enr(enr).map_err(|e| {
+                        error!(
+                            addr = original_addr.to_string(),
+                            error = e.to_string(),
+                            "Could not add peer to the local routing table"
+                        )
                     });
                 }
-                Err(_e) => {
-                    // TODO error!(log, "Error getting mapping to ENR"; "multiaddr" => original_addr.to_string(), "error" => e.to_string())
+                Err(e) => {
+                    error!(
+                        multiaddr = original_addr.to_string(),
+                        error = e.to_string(),
+                        "Error getting mapping to ENR"
+                    )
                 }
             }
         }
@@ -294,10 +297,10 @@ impl Discovery {
                 self.find_peer_active = false;
                 match query.result {
                     Ok(r) if r.is_empty() => {
-                        //debug!(self.log, "Discovery query yielded no results.");
+                        debug!("Discovery query yielded no results.");
                     }
                     Ok(r) => {
-                        // debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
+                        debug!(peers_found = r.len(), "Discovery query completed");
                         let results = r
                             .into_iter()
                             .map(|enr| {
@@ -308,8 +311,8 @@ impl Discovery {
                             .collect();
                         return Some(results);
                     }
-                    Err(_e) => {
-                        //warn!(self.log, "Discovery query failed"; "error" => %e);
+                    Err(e) => {
+                        warn!(error = %e, "Discovery query failed");
                     }
                 }
             }
@@ -361,7 +364,7 @@ impl NetworkBehaviour for Discovery {
     fn on_swarm_event(&mut self, event: FromSwarm) {
         match event {
             FromSwarm::ConnectionEstablished(c) => {
-                log::debug!("Connection established: {:?}", c);
+                debug!("Connection established: {:?}", c);
             }
             _ => {
                 // TODO handle other events
