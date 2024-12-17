@@ -312,7 +312,9 @@ impl Discovery {
                     }
                 }
             }
-            _ => {}
+            _ => {
+                // TODO handle subnet queries
+            }
         }
         None
     }
