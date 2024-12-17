@@ -23,6 +23,7 @@ use lighthouse_network::discovery::enr_ext::{QUIC6_ENR_KEY, QUIC_ENR_KEY};
 use lighthouse_network::discovery::DiscoveredPeers;
 use lighthouse_network::{CombinedKeyExt, Subnet};
 use tokio::sync::mpsc;
+use tracing::log;
 
 use crate::Config;
 
@@ -357,7 +358,16 @@ impl NetworkBehaviour for Discovery {
         Ok(ConnectionHandler)
     }
 
-    fn on_swarm_event(&mut self, _event: FromSwarm) {}
+    fn on_swarm_event(&mut self, event: FromSwarm) {
+        match event {
+            FromSwarm::ConnectionEstablished(c) => {
+                log::debug!("Connection established: {:?}", c);
+            }
+            _ => {
+                // TODO handle other events
+            }
+        }
+    }
 
     fn on_connection_handler_event(
         &mut self,

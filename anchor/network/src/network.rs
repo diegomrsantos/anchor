@@ -22,6 +22,8 @@ use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
 
+use lighthouse_network::EnrExt;
+
 pub struct Network {
     swarm: Swarm<AnchorBehaviour>,
     peer_id: PeerId,
@@ -96,6 +98,12 @@ impl Network {
                             AnchorBehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
                                 //self.peer_manager_mut().peers_discovered(peers);
                                 log::debug!("Discovered peers: {:?}", peers);
+                                for (enr, _) in peers {
+                                    for tcp in enr.multiaddr_tcp() {
+                                        log::debug!("Dialing peer: {:?}", tcp);
+                                        self.swarm.dial(tcp).unwrap();
+                                    }
+                                }
                             }
                             // TODO handle other behaviour events
                             _ => {
