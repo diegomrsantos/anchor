@@ -98,11 +98,7 @@ impl Discovery {
             None => String::from(""),
         };
 
-        // info!("enr" = local_enr.to_base64(), "seq" = local_enr.seq(), "id" = local_enr.node_id(),
-        //       "ip4" = ?local_enr.ip4(), "udp4" = ?local_enr.udp4(), "tcp4" = ?local_enr.tcp4(), "tcp6" = ?local_enr.tcp6(), "udp6" = ?local_enr.udp6(),
-        //       "quic4" = ?local_enr.quic4(), "quic6" = ?local_enr.quic6(),
-        //     "ENR Initialised"
-        // );
+        // TODO handle local enr
 
         let discv5_listen_config =
             discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
