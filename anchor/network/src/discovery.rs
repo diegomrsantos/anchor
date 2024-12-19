@@ -253,21 +253,20 @@ impl Discovery {
         //         return;
         //     }
         // };
-        // predicate for finding nodes with a matching fork and valid tcp port
-        let eth2_fork_predicate = move |enr: &Enr| {
-            // `next_fork_epoch` and `next_fork_version` can be different so that
-            // we can connect to peers who aren't compatible with an upcoming fork.
-            // `fork_digest` **must** be same.
 
-            // enr.eth2().map(|e| e.fork_digest) == Ok(enr_fork_id.fork_digest)
-            //     &&
-            enr.tcp4().is_some() || enr.tcp6().is_some()
+        // predicate for finding ssv nodes with a valid tcp port
+        let ssv_node_predicate = move |enr: &Enr| {
+            if let Some(Ok(is_ssv)) = enr.get_decodable("ssv") {
+                is_ssv && enr.tcp4().is_some() || enr.tcp6().is_some()
+            } else {
+                false
+            }
         };
 
         // General predicate
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> =
             //Box::new(move |enr: &Enr| eth2_fork_predicate(enr) && additional_predicate(enr));
-            Box::new(move |enr: &Enr| eth2_fork_predicate(enr));
+            Box::new(move |enr: &Enr| ssv_node_predicate(enr));
 
         // Build the future
         let query_future = self
