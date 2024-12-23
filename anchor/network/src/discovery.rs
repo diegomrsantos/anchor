@@ -247,7 +247,7 @@ impl Discovery {
         &mut self,
         query: QueryType,
         target_peers: usize,
-        _additional_predicate: impl Fn(&Enr) -> bool + Send + 'static,
+        additional_predicate: impl Fn(&Enr) -> bool + Send + 'static,
     ) {
         // let enr_fork_id = match self.local_enr().eth2() {
         //     Ok(v) => v,
@@ -268,8 +268,7 @@ impl Discovery {
 
         // General predicate
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> =
-            //Box::new(move |enr: &Enr| eth2_fork_predicate(enr) && additional_predicate(enr));
-            Box::new(move |enr: &Enr| ssv_node_predicate(enr));
+            Box::new(move |enr: &Enr| ssv_node_predicate(enr) && additional_predicate(enr));
 
         // Build the future
         let query_future = self
