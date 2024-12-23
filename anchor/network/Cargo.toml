@@ -27,6 +27,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 version = { workspace = true }
+ssz_types = "0.8"
+ethereum_ssz = "0.7"
 
 [dev-dependencies]
 async-channel = { workspace = true }

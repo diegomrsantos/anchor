@@ -12,6 +12,7 @@ use discv5::{Discv5, Enr};
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use futures::{StreamExt, TryFutureExt};
+use libp2p::bytes::Bytes;
 use libp2p::core::transport::PortUse;
 use libp2p::core::Endpoint;
 use libp2p::swarm::dummy::ConnectionHandler;
@@ -25,9 +26,11 @@ use lighthouse_network::{CombinedKeyExt, Subnet};
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
-use lighthouse_network::EnrExt;
-
 use crate::Config;
+use lighthouse_network::EnrExt;
+use ssz::Encode;
+use ssz_types::typenum::U128;
+use ssz_types::BitVector;
 
 /// The number of closest peers to search for when doing a regular peer search.
 ///
@@ -461,6 +464,12 @@ pub fn build_enr(enr_key: &CombinedKey, config: &Config) -> Result<Enr, String> 
     if let Some(tcp6_port) = tcp6_port {
         builder.tcp6(tcp6_port.get());
     }
+
+    // set the "subnets" field on our ENR
+    let mut bitfield = BitVector::<U128>::new();
+    bitfield.set(9, true).unwrap();
+
+    builder.add_value::<Bytes>("subnets", &bitfield.as_ssz_bytes().into());
 
     builder
         .build(enr_key)
