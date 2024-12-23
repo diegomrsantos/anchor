@@ -100,7 +100,7 @@ impl Network {
                                 log::debug!("Discovered peers: {:?}", peers);
                                 for (enr, _) in peers {
                                     for tcp in enr.multiaddr_tcp() {
-                                        log::debug!("Dialing peer: {:?}", tcp);
+                                        log::trace!("Dialing peer: {:?}", tcp);
 if let Err(e) = self.swarm.dial(tcp.clone()) {
  log::error!("Error dialing peer {}: {}", tcp,  e);
  }                                       
