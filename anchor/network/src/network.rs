@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::Boxed;
-use libp2p::gossipsub::{MessageAuthenticity, ValidationMode};
+use libp2p::gossipsub::{IdentTopic, MessageAuthenticity, ValidationMode};
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
@@ -13,7 +13,7 @@ use libp2p::{futures, gossipsub, identify, ping, PeerId, Swarm, SwarmBuilder};
 use lighthouse_network::discovery::DiscoveredPeers;
 use lighthouse_network::discv5::enr::k256::sha2::{Digest, Sha256};
 use task_executor::TaskExecutor;
-use tracing::{info, log};
+use tracing::{debug, info, log, warn};
 
 use crate::behaviour::AnchorBehaviour;
 use crate::behaviour::AnchorBehaviourEvent;
@@ -83,6 +83,17 @@ impl Network {
 
     /// Main loop for polling and handling swarm and channels.
     pub async fn run(mut self) {
+        let topic = IdentTopic::new("ssv.v2.9");
+
+        match self.swarm.behaviour_mut().gossipsub.subscribe(&topic) {
+            Err(e) => {
+                warn!(topic = %topic, "error" = ?e, "Failed to subscribe to topic");
+            }
+            Ok(_) => {
+                debug!(topic = %topic, "Subscribed to topic");
+            }
+        }
+
         loop {
             tokio::select! {
                 swarm_message = self.swarm.select_next_some() => {
