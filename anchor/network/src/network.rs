@@ -101,7 +101,9 @@ impl Network {
                                 for (enr, _) in peers {
                                     for tcp in enr.multiaddr_tcp() {
                                         log::debug!("Dialing peer: {:?}", tcp);
-                                        self.swarm.dial(tcp).unwrap();
+if let Err(e) = self.swarm.dial(tcp.clone()) {
+ log::error!("Error dialing peer {}: {}", tcp,  e);
+ }                                       
                                     }
                                 }
                             }
