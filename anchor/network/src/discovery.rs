@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::net::Ipv4Addr;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Instant;
@@ -22,25 +23,63 @@ use libp2p::swarm::{
 };
 use lighthouse_network::discovery::enr_ext::{QUIC6_ENR_KEY, QUIC_ENR_KEY};
 use lighthouse_network::discovery::DiscoveredPeers;
-use lighthouse_network::{CombinedKeyExt, Subnet};
+use lighthouse_network::CombinedKeyExt;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
 use crate::Config;
 use lighthouse_network::EnrExt;
-use ssz::Encode;
+use serde::{Deserialize, Serialize};
+use ssz::{Decode, Encode};
+use ssz_types::length::Fixed;
 use ssz_types::typenum::U128;
-use ssz_types::BitVector;
+use ssz_types::{BitVector, Bitfield};
 
+/// Target number of peers to search for given a grouped subnet query.
+const TARGET_PEERS_FOR_GROUPED_QUERY: usize = 6;
 /// The number of closest peers to search for when doing a regular peer search.
 ///
 /// We could reduce this constant to speed up queries however at the cost of security. It will
 /// make it easier to peers to eclipse this node. Kademlia suggests a value of 16.
 pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 
+/// Represents a subnet on an attestation or sync committee `SubnetId`.
+///
+/// Used for subscribing to the appropriate gossipsub subnets and mark
+/// appropriate metadata bitfields.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+pub enum SSVSubnet {
+    /// Represents a gossipsub attestation subnet and the metadata `attnets` field.
+    Subnet(SubnetId),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
+
+impl SubnetId {
+    pub fn new(id: u64) -> Self {
+        id.into()
+    }
+}
+
+impl From<u64> for SubnetId {
+    fn from(x: u64) -> Self {
+        Self(x)
+    }
+}
+
+impl Deref for SubnetId {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct SubnetQuery {
-    subnet: Subnet,
+    subnet: SSVSubnet,
     min_ttl: Option<Instant>,
     retries: usize,
 }
@@ -236,6 +275,25 @@ impl Discovery {
         // TODO debug!(self.log, "Starting a peer discovery request"; "target_peers" => target_peers );
         self.find_peer_active = true;
         self.start_query(QueryType::FindPeers, target_peers, |_| true);
+    }
+
+    /// Runs a discovery request for a given group of subnets.
+    pub fn start_subnet_query(&mut self) {
+        let mut subnets: Vec<SSVSubnet> = Vec::new();
+        let subnet1 = SSVSubnet::Subnet(SubnetId::new(9));
+        subnets.push(subnet1);
+
+        let subnet_queries: Vec<SubnetQuery> = vec![SubnetQuery {
+            subnet: subnet1,
+            min_ttl: None,
+            retries: 0,
+        }];
+
+        self.start_query(
+            QueryType::Subnet(subnet_queries),
+            TARGET_PEERS_FOR_GROUPED_QUERY,
+            subnet_predicate(subnets),
+        );
     }
 
     /// Search for a specified number of new peers using the underlying discovery mechanism.
@@ -473,4 +531,36 @@ pub fn build_enr(enr_key: &CombinedKey, config: &Config) -> Result<Enr, String> 
     builder
         .build(enr_key)
         .map_err(|e| format!("Could not build Local ENR: {:?}", e))
+}
+
+fn committee_bitfield(enr: &Enr) -> Result<Bitfield<Fixed<U128>>, &'static str> {
+    let bitfield_bytes: Bytes = enr
+        .get_decodable("subnets")
+        .ok_or("ENR subnet bitfield non-existent")?
+        .map_err(|_| "Invalid RLP Encoding")?;
+
+    BitVector::<U128>::from_ssz_bytes(&bitfield_bytes)
+        .map_err(|_| "Could not decode the ENR subnets bitfield")
+}
+
+/// Returns the predicate for a given subnet.
+pub fn subnet_predicate(subnets: Vec<SSVSubnet>) -> impl Fn(&Enr) -> bool + Send {
+    move |enr: &Enr| {
+        let committee_bitfield: Bitfield<Fixed<U128>> = match committee_bitfield(enr) {
+            Ok(b) => b,
+            Err(_e) => return false,
+        };
+
+        let predicate = subnets.iter().any(|subnet| match subnet {
+            SSVSubnet::Subnet(s) => committee_bitfield.get(*s.deref() as usize).unwrap_or(false),
+        });
+
+        if !predicate {
+            debug!(
+                peer_id = %enr.peer_id(),
+                "Peer found but not on any of the desired subnets",
+            );
+        }
+        predicate
+    }
 }
