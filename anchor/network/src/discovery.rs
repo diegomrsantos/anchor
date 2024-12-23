@@ -280,11 +280,11 @@ impl Discovery {
     /// Runs a discovery request for a given group of subnets.
     pub fn start_subnet_query(&mut self) {
         let mut subnets: Vec<SSVSubnet> = Vec::new();
-        let subnet1 = SSVSubnet::Subnet(SubnetId::new(9));
-        subnets.push(subnet1);
+        let subnet = SSVSubnet::Subnet(SubnetId::new(9));
+        subnets.push(subnet);
 
         let subnet_queries: Vec<SubnetQuery> = vec![SubnetQuery {
-            subnet: subnet1,
+            subnet: subnet,
             min_ttl: None,
             retries: 0,
         }];
@@ -371,7 +371,27 @@ impl Discovery {
                     }
                 }
             }
-            _ => {
+            QueryType::Subnet(queries) => {
+                let subnets_searched_for: Vec<SSVSubnet> =
+                    queries.iter().map(|query| query.subnet).collect();
+
+                match query.result {
+                    Ok(r) if r.is_empty() => {
+                        debug!(subnets_searched_for = ?subnets_searched_for, "Grouped subnet discovery query yielded no results.");
+                        // TODO queries.iter().for_each(|query| {
+                        //     self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
+                        // })
+                    }
+                    Ok(r) => {
+                        debug!(peers_found = r.len(), subnets_searched_for = ?subnets_searched_for, "Peer grouped subnet discovery request completed");
+                        let results = r.into_iter().map(|enr| (enr, None)).collect();
+
+                        return Some(results);
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Subnet query failed");
+                    }
+                }
                 // TODO handle subnet queries
             }
         }
