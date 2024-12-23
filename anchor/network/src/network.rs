@@ -85,41 +85,41 @@ impl Network {
     pub async fn run(mut self) {
         loop {
             tokio::select! {
-                swarm_message = self.swarm.select_next_some() => {
-                    match swarm_message {
-                        SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
-                            AnchorBehaviourEvent::Gossipsub(_ge) => {
-                                // TODO handle gossipsub events
-                            },
-                            // Inform the peer manager about discovered peers.
-                            //
-                            // The peer manager will subsequently decide which peers need to be dialed and then dial
-                            // them.
-                            AnchorBehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
-                                //self.peer_manager_mut().peers_discovered(peers);
-                                log::debug!("Discovered peers: {:?}", peers);
-                                for (enr, _) in peers {
-                                    for tcp in enr.multiaddr_tcp() {
-                                        log::trace!("Dialing peer: {:?}", tcp);
-if let Err(e) = self.swarm.dial(tcp.clone()) {
- log::error!("Error dialing peer {}: {}", tcp,  e);
- }                                       
+                            swarm_message = self.swarm.select_next_some() => {
+                                match swarm_message {
+                                    SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
+                                        AnchorBehaviourEvent::Gossipsub(_ge) => {
+                                            // TODO handle gossipsub events
+                                        },
+                                        // Inform the peer manager about discovered peers.
+                                        //
+                                        // The peer manager will subsequently decide which peers need to be dialed and then dial
+                                        // them.
+                                        AnchorBehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
+                                            //self.peer_manager_mut().peers_discovered(peers);
+                                            log::debug!("Discovered peers: {:?}", peers);
+                                            for (enr, _) in peers {
+                                                for tcp in enr.multiaddr_tcp() {
+                                                    log::trace!("Dialing peer: {:?}", tcp);
+            if let Err(e) = self.swarm.dial(tcp.clone()) {
+             log::error!("Error dialing peer {}: {}", tcp,  e);
+             }
+                                                }
+                                            }
+                                        }
+                                        // TODO handle other behaviour events
+                                        _ => {
+                                            log::debug!("Unhandled behaviour event: {:?}", behaviour_event);
+                                        }
+                                    },
+                                    // TODO handle other swarm events
+                                    _ => {
+                                        log::debug!("Unhandled swarm event: {:?}", swarm_message);
                                     }
                                 }
                             }
-                            // TODO handle other behaviour events
-                            _ => {
-                                log::debug!("Unhandled behaviour event: {:?}", behaviour_event);
-                            }
-                        },
-                        // TODO handle other swarm events
-                        _ => {
-                            log::debug!("Unhandled swarm event: {:?}", swarm_message);
+                            // TODO match input channels
                         }
-                    }
-                }
-                // TODO match input channels
-            }
         }
     }
 }
