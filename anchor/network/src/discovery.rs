@@ -284,7 +284,7 @@ impl Discovery {
         subnets.push(subnet);
 
         let subnet_queries: Vec<SubnetQuery> = vec![SubnetQuery {
-            subnet: subnet,
+            subnet,
             min_ttl: None,
             retries: 0,
         }];
