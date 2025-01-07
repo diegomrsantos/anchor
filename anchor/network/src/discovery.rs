@@ -9,7 +9,7 @@ use std::time::Instant;
 use discv5::enr::{CombinedKey, NodeId};
 use discv5::libp2p_identity::{Keypair, PeerId};
 use discv5::multiaddr::Multiaddr;
-use discv5::{Discv5, Enr};
+use discv5::{Discv5, Enr, ProtocolIdentity};
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use futures::{StreamExt, TryFutureExt};
@@ -111,12 +111,19 @@ enum EventStream {
     InActive,
 }
 
+pub struct ProtocolId {}
+
+impl ProtocolIdentity for ProtocolId {
+    const PROTOCOL_ID_BYTES: [u8; 6] = *b"ssvdv5";
+    const PROTOCOL_VERSION_BYTES: [u8; 2] = 0x0001_u16.to_be_bytes();
+}
+
 pub struct Discovery {
     /// The handle for the underlying discv5 Server.
     ///
     /// This is behind a Reference counter to allow for futures to be spawned and polled with a
     /// static lifetime.
-    discv5: Discv5,
+    discv5: Discv5<ProtocolId>,
 
     /// Indicates if we are actively searching for peers. We only allow a single FindPeers query at
     /// a time, regardless of the query concurrency.
@@ -152,7 +159,7 @@ impl Discovery {
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_keypair)?;
 
         let enr = build_enr(&enr_key, network_config).unwrap();
-        let mut discv5 = Discv5::new(enr, enr_key, discv5_config)
+        let mut discv5 = Discv5::<ProtocolId>::new(enr, enr_key, discv5_config)
             .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
@@ -315,18 +322,12 @@ impl Discovery {
         //     }
         // };
 
-        // predicate for finding ssv nodes with a valid tcp port
-        let ssv_node_predicate = move |enr: &Enr| {
-            if let Some(Ok(is_ssv)) = enr.get_decodable("ssv") {
-                is_ssv && enr.tcp4().is_some() || enr.tcp6().is_some()
-            } else {
-                false
-            }
-        };
+        // predicate for finding nodes with a valid tcp port
+        let tcp_predicate = move |enr: &Enr| enr.tcp4().is_some() || enr.tcp6().is_some();
 
         // General predicate
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> =
-            Box::new(move |enr: &Enr| ssv_node_predicate(enr) && additional_predicate(enr));
+            Box::new(move |enr: &Enr| tcp_predicate(enr) && additional_predicate(enr));
 
         // Build the future
         let query_future = self
@@ -355,7 +356,6 @@ impl Discovery {
                         debug!("Discovery query yielded no results.");
                     }
                     Ok(r) => {
-                        debug!(peers_found = r.len(), "Discovery query completed");
                         let results = r
                             .into_iter()
                             .map(|enr| {
@@ -364,6 +364,7 @@ impl Discovery {
                                 (enr, None)
                             })
                             .collect();
+                        debug!(peers = ?results, "Discovery query completed");
                         return Some(results);
                     }
                     Err(e) => {
@@ -383,8 +384,8 @@ impl Discovery {
                         // })
                     }
                     Ok(r) => {
-                        debug!(peers_found = r.len(), subnets_searched_for = ?subnets_searched_for, "Peer grouped subnet discovery request completed");
                         let results = r.into_iter().map(|enr| (enr, None)).collect();
+                        debug!(peers = ?results, subnets_searched_for = ?subnets_searched_for, "Peer grouped subnet discovery request completed");
 
                         return Some(results);
                     }
