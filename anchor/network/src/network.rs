@@ -22,7 +22,9 @@ use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
 
+use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
+use ssz::Decode;
 
 pub struct Network {
     swarm: Swarm<AnchorBehaviour>,
@@ -99,7 +101,33 @@ impl Network {
                 swarm_message = self.swarm.select_next_some() => {
                     match swarm_message {
                         SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
-                            AnchorBehaviourEvent::Gossipsub(_ge) => {
+                            AnchorBehaviourEvent::Gossipsub(ge) => {
+                                match ge {
+                                    gossipsub::Event::Message {
+                                        propagation_source,
+                                        message_id,
+                                        message,
+                                    } => {
+                                        log::debug!(
+                                            "Received message from {:?} with id {:?}: {:?}",
+                                            propagation_source,
+                                            message_id,
+                                            &message
+                                        );
+                                        match SignedSSVMessage::from_ssz_bytes(&message.data) {
+                                            Ok(deserialized_message) => {
+                                                log::debug!("SSVMessage: {:?}", deserialized_message);
+                                            }
+                                            Err(e) => {
+                                                log::error!("Error deserializing SSVMessage: {:?}", e);
+                                            }
+                                        }
+                                    }
+                                    // TODO handle gossipsub events
+                                    _ => {
+                                        log::debug!("Unhandled gossipsub event: {:?}", ge);
+                                    }
+                                }
                                 // TODO handle gossipsub events
                             },
                             // Inform the peer manager about discovered peers.
