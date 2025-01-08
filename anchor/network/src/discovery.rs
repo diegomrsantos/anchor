@@ -378,14 +378,21 @@ impl Discovery {
 
                 match query.result {
                     Ok(r) if r.is_empty() => {
-                        debug!(subnets_searched_for = ?subnets_searched_for, "Grouped subnet discovery query yielded no results.");
+                        debug!(
+                            subnets_searched_for = ?subnets_searched_for,
+                            "Grouped subnet discovery query yielded no results.",
+                        );
                         // TODO queries.iter().for_each(|query| {
                         //     self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
                         // })
                     }
                     Ok(r) => {
                         let results = r.into_iter().map(|enr| (enr, None)).collect();
-                        debug!(peers = ?results, subnets_searched_for = ?subnets_searched_for, "Peer grouped subnet discovery request completed");
+                        debug!(
+                            peers = ?results,
+                            subnets_searched_for = ?subnets_searched_for,
+                            "Peer grouped subnet discovery request completed",
+                        );
 
                         return Some(results);
                     }
