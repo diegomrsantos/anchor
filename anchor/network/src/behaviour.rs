@@ -1,4 +1,5 @@
 use crate::discovery::Discovery;
+use crate::peer_manager::PeerManager;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{gossipsub, identify, ping};
 
@@ -12,4 +13,6 @@ pub struct AnchorBehaviour {
     pub gossipsub: gossipsub::Behaviour,
     /// Discv5 Discovery protocol.
     pub discovery: Discovery,
+    /// The peer manager that keeps track of peer's reputation and status.
+    pub peer_manager: PeerManager,
 }

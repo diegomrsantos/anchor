@@ -5,6 +5,8 @@ edition = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
+arbitrary = "1.4.1"
+delay_map = "0.4"
 dirs = { workspace = true }
 discv5 = { workspace = true }
 ethereum_serde_utils = "1.0.0-beta.0"
@@ -25,13 +27,17 @@ libp2p = { version = "0.54", default-features = false, features = [
   "ping",
 ] }
 lighthouse_network = { workspace = true }
+parking_lot = { workspace = true }
 serde = { workspace = true }
+smallvec = { workspace = true }
 ssz_types = "0.10"
 task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 version = { workspace = true }
+itertools = "0.10.5"
+strum = "0.24.1"
 
 [dev-dependencies]
 async-channel = { workspace = true }

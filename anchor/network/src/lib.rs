@@ -5,6 +5,7 @@ mod config;
 mod discovery;
 mod keypair_utils;
 mod network;
+mod peer_manager;
 mod transport;
 pub mod types;
 

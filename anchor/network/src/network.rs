@@ -20,8 +20,9 @@ use crate::behaviour::AnchorBehaviourEvent;
 use crate::discovery::{Discovery, FIND_NODE_QUERY_CLOSEST_PEERS};
 use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
-use crate::Config;
+use crate::{peer_manager, Config};
 
+use crate::peer_manager::{PeerManager, PeerManagerEvent};
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
@@ -99,6 +100,7 @@ impl Network {
         loop {
             tokio::select! {
                 swarm_message = self.swarm.select_next_some() => {
+                    debug!(connected_peers = self.swarm.connected_peers().count(), "Connected peers");
                     match swarm_message {
                         SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
                             AnchorBehaviourEvent::Gossipsub(ge) => {
@@ -134,16 +136,13 @@ impl Network {
                             // The peer manager will subsequently decide which peers need to be dialed and then dial
                             // them.
                             AnchorBehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
-                                //self.peer_manager_mut().peers_discovered(peers);
+                                let mut peer_manager = &mut self.swarm.behaviour_mut().peer_manager;
+                                peer_manager.peers_discovered(peers.clone());
                                 debug!(peers =  ?peers, "Peers discovered");
-                                for (enr, _) in peers {
-                                    for tcp in enr.multiaddr_tcp() {
-                                        trace!(address = ?tcp, "Dialing peer");
-                                        if let Err(e) = self.swarm.dial(tcp.clone()) {
-                                            error!(address = ?tcp, error = ?e, "Error dialing peer");
-                                        }
-                                    }
-                                }
+                            }
+                            AnchorBehaviourEvent::PeerManager(PeerManagerEvent::DiscoverPeers(peers_to_find)) => {
+                                // Peer manager has requested a discovery query for more peers.
+                                self.discovery_mut().discover_peers(peers_to_find);
                             }
                             // TODO handle other behaviour events
                             _ => {
@@ -159,6 +158,11 @@ impl Network {
                 // TODO match input channels
             }
         }
+    }
+
+    /// Discv5 Discovery protocol.
+    pub fn discovery_mut(&mut self) -> &mut Discovery {
+        &mut self.swarm.behaviour_mut().discovery
     }
 }
 
@@ -217,11 +221,18 @@ async fn build_anchor_behaviour(
         discovery
     };
 
+    let peer_manager = PeerManager::new(
+        lighthouse_network::peer_manager::config::Config::default(),
+        vec![],
+        false,
+    );
+
     AnchorBehaviour {
         identify,
         ping: ping::Behaviour::default(),
         gossipsub,
         discovery,
+        peer_manager,
     }
 }
 

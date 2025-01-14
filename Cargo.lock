@@ -2232,7 +2232,7 @@ dependencies = [
  "multiaddr",
  "parking_lot",
  "rand",
- "smallvec",
+ "smallvec 1.13.2",
  "socket2",
  "tokio",
  "tracing",
@@ -2591,7 +2591,7 @@ checksum = "1e999563461faea0ab9bc0024e5e66adcee35881f3d5062f52f31a4070fe1522"
 dependencies = [
  "alloy-primitives",
  "itertools 0.13.0",
- "smallvec",
+ "smallvec 1.13.2",
 ]
 
 [[package]]
@@ -2605,7 +2605,7 @@ dependencies = [
  "itertools 0.13.0",
  "serde",
  "serde_derive",
- "smallvec",
+ "smallvec 1.13.2",
  "typenum",
 ]
 
@@ -3267,7 +3267,7 @@ dependencies = [
  "parking_lot",
  "rand",
  "resolv-conf",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -3468,7 +3468,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "smallvec",
+ "smallvec 1.13.2",
  "tokio",
  "want",
 ]
@@ -3631,7 +3631,7 @@ dependencies = [
  "icu_normalizer_data",
  "icu_properties",
  "icu_provider",
- "smallvec",
+ "smallvec 1.13.2",
  "utf16_iter",
  "utf8_iter",
  "write16",
@@ -3706,7 +3706,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "686f825264d630750a544639377bae737628043f20d38bbc029e8f29ea968a7e"
 dependencies = [
  "idna_adapter",
- "smallvec",
+ "smallvec 1.13.2",
  "utf8_iter",
 ]
 
@@ -4112,7 +4112,7 @@ dependencies = [
  "quick-protobuf",
  "rand",
  "rw-stream-sink",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
  "tracing",
  "unsigned-varint 0.8.0",
@@ -4132,7 +4132,7 @@ dependencies = [
  "libp2p-core",
  "libp2p-identity",
  "parking_lot",
- "smallvec",
+ "smallvec 1.13.2",
  "tracing",
 ]
 
@@ -4161,7 +4161,7 @@ dependencies = [
  "rand",
  "regex",
  "sha2 0.10.8",
- "smallvec",
+ "smallvec 1.13.2",
  "tracing",
  "void",
  "web-time",
@@ -4184,7 +4184,7 @@ dependencies = [
  "lru",
  "quick-protobuf",
  "quick-protobuf-codec",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
  "tracing",
  "void",
@@ -4226,7 +4226,7 @@ dependencies = [
  "libp2p-identity",
  "libp2p-swarm",
  "rand",
- "smallvec",
+ "smallvec 1.13.2",
  "socket2",
  "tokio",
  "tracing",
@@ -4265,7 +4265,7 @@ dependencies = [
  "nohash-hasher",
  "parking_lot",
  "rand",
- "smallvec",
+ "smallvec 1.13.2",
  "tracing",
  "unsigned-varint 0.8.0",
 ]
@@ -4371,7 +4371,7 @@ dependencies = [
  "multistream-select",
  "once_cell",
  "rand",
- "smallvec",
+ "smallvec 1.13.2",
  "tokio",
  "tracing",
  "void",
@@ -4560,7 +4560,7 @@ dependencies = [
  "serde",
  "sha2 0.9.9",
  "slog",
- "smallvec",
+ "smallvec 1.13.2",
  "snap",
  "ssz_types 0.8.0",
  "strum 0.24.1",
@@ -4760,7 +4760,7 @@ dependencies = [
  "itertools 0.10.5",
  "proc-macro2",
  "quote",
- "smallvec",
+ "smallvec 1.13.2",
  "syn 1.0.109",
 ]
 
@@ -4788,7 +4788,7 @@ dependencies = [
  "parking_lot",
  "rayon",
  "serde",
- "smallvec",
+ "smallvec 1.13.2",
  "tree_hash 0.8.0",
  "triomphe",
  "typenum",
@@ -4883,7 +4883,7 @@ dependencies = [
  "futures",
  "log",
  "pin-project",
- "smallvec",
+ "smallvec 1.13.2",
  "unsigned-varint 0.7.2",
 ]
 
@@ -4972,7 +4972,9 @@ dependencies = [
 name = "network"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "async-channel",
+ "delay_map",
  "dirs 5.0.1",
  "discv5",
  "ethereum_serde_utils 1.0.0-beta.0",
@@ -4980,10 +4982,14 @@ dependencies = [
  "ethereum_ssz_derive 0.8.2",
  "futures",
  "hex",
+ "itertools 0.10.5",
  "libp2p",
  "lighthouse_network",
+ "parking_lot",
  "serde",
+ "smallvec 2.0.0-alpha.10",
  "ssz_types 0.10.0",
+ "strum 0.24.1",
  "task_executor",
  "tokio",
  "tracing",
@@ -5063,7 +5069,7 @@ dependencies = [
  "num-traits",
  "rand",
  "serde",
- "smallvec",
+ "smallvec 1.13.2",
  "zeroize",
 ]
 
@@ -5301,7 +5307,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "redox_syscall",
- "smallvec",
+ "smallvec 1.13.2",
  "windows-targets 0.52.6",
 ]
 
@@ -6225,7 +6231,7 @@ dependencies = [
  "fallible-streaming-iterator",
  "hashlink 0.8.4",
  "libsqlite3-sys",
- "smallvec",
+ "smallvec 1.13.2",
 ]
 
 [[package]]
@@ -6898,6 +6904,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "smallvec"
+version = "2.0.0-alpha.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51d44cfb396c3caf6fbfd0ab422af02631b69ddd96d2eff0b0f0724f9024051b"
+
+[[package]]
 name = "snap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6978,7 +6990,7 @@ dependencies = [
  "itertools 0.13.0",
  "serde",
  "serde_derive",
- "smallvec",
+ "smallvec 1.13.2",
  "tree_hash 0.8.0",
  "typenum",
 ]
@@ -6994,7 +7006,7 @@ dependencies = [
  "itertools 0.13.0",
  "serde",
  "serde_derive",
- "smallvec",
+ "smallvec 1.13.2",
  "tree_hash 0.9.0",
  "typenum",
 ]
@@ -7083,7 +7095,7 @@ dependencies = [
  "itertools 0.10.5",
  "proc-macro2",
  "quote",
- "smallvec",
+ "smallvec 1.13.2",
  "syn 1.0.109",
 ]
 
@@ -7637,7 +7649,7 @@ dependencies = [
  "once_cell",
  "regex",
  "sharded-slab",
- "smallvec",
+ "smallvec 1.13.2",
  "thread_local",
  "tracing",
  "tracing-core",
@@ -7671,7 +7683,7 @@ checksum = "373495c23db675a5192de8b610395e1bec324d596f9e6111192ce903dc11403a"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
- "smallvec",
+ "smallvec 1.13.2",
 ]
 
 [[package]]
@@ -7683,7 +7695,7 @@ dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
  "ethereum_ssz 0.8.2",
- "smallvec",
+ "smallvec 1.13.2",
  "typenum",
 ]
 
@@ -7780,7 +7792,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "slog",
- "smallvec",
+ "smallvec 1.13.2",
  "ssz_types 0.8.0",
  "superstruct",
  "swap_or_not_shuffle",
