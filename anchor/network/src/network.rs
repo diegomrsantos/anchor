@@ -13,7 +13,7 @@ use libp2p::{futures, gossipsub, identify, ping, PeerId, Swarm, SwarmBuilder};
 use lighthouse_network::discovery::DiscoveredPeers;
 use lighthouse_network::discv5::enr::k256::sha2::{Digest, Sha256};
 use task_executor::TaskExecutor;
-use tracing::{debug, info, log, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::behaviour::AnchorBehaviour;
 use crate::behaviour::AnchorBehaviourEvent;
@@ -108,24 +108,23 @@ impl Network {
                                         message_id,
                                         message,
                                     } => {
-                                        log::debug!(
-                                            "Received message from {:?} with id {:?}: {:?}",
-                                            propagation_source,
-                                            message_id,
-                                            &message
+                                        debug!(
+                                            source = ?propagation_source,
+                                            id = ?message_id,
+                                            "Received SignedSSVMessage"
                                         );
                                         match SignedSSVMessage::from_ssz_bytes(&message.data) {
                                             Ok(deserialized_message) => {
-                                                log::debug!("SSVMessage: {:?}", deserialized_message);
+                                                debug!(msg = ?deserialized_message, "SignedSSVMessage deserialized");
                                             }
                                             Err(e) => {
-                                                log::error!("Error deserializing SSVMessage: {:?}", e);
+                                                error!("error" = ?e, "Failed to deserialize SignedSSVMessage");
                                             }
                                         }
                                     }
                                     // TODO handle gossipsub events
                                     _ => {
-                                        log::debug!("Unhandled gossipsub event: {:?}", ge);
+                                        debug!(event = ?ge, "Unhandled gossipsub event");
                                     }
                                 }
                                 // TODO handle gossipsub events
@@ -136,24 +135,24 @@ impl Network {
                             // them.
                             AnchorBehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
                                 //self.peer_manager_mut().peers_discovered(peers);
-                                log::debug!("Discovered peers: {:?}", peers);
+                                debug!(peers =  ?peers, "Peers discovered");
                                 for (enr, _) in peers {
                                     for tcp in enr.multiaddr_tcp() {
-                                        log::trace!("Dialing peer: {:?}", tcp);
+                                        trace!(address = ?tcp, "Dialing peer");
                                         if let Err(e) = self.swarm.dial(tcp.clone()) {
-                                            log::error!("Error dialing peer {}: {}", tcp,  e);
+                                            error!(address = ?tcp, error = ?e, "Error dialing peer");
                                         }
                                     }
                                 }
                             }
                             // TODO handle other behaviour events
                             _ => {
-                                log::debug!("Unhandled behaviour event: {:?}", behaviour_event);
+                                debug!(event = ?behaviour_event, "Unhandled behaviour event");
                             }
                         },
                         // TODO handle other swarm events
                         _ => {
-                            log::debug!("Unhandled swarm event: {:?}", swarm_message);
+                            debug!(event = ?swarm_message, "Unhandled swarm event");
                         }
                     }
                 }
