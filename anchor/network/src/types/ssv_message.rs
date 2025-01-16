@@ -87,9 +87,10 @@ pub enum MsgType {
     SSVPartialSignatureMsgType = 1,
 }
 
-impl MsgType {
-    /// Tries to convert a `u64` into a `MsgType`.
-    pub fn try_from_u64(value: u64) -> Result<Self, DecodeError> {
+impl TryFrom<u64> for MsgType {
+    type Error = DecodeError;
+
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(MsgType::SSVConsensusMsgType),
             1 => Ok(MsgType::SSVPartialSignatureMsgType),
@@ -139,7 +140,7 @@ impl Decode for MsgType {
             });
         }
         let value = u64::from_le_bytes(bytes.try_into().unwrap());
-        MsgType::try_from_u64(value)
+        value.try_into()
     }
 }
 
