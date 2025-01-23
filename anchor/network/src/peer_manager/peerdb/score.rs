@@ -11,7 +11,6 @@ use serde::Serialize;
 use std::cmp::Ordering;
 use std::sync::LazyLock;
 use std::time::Instant;
-use strum::AsRefStr;
 use tokio::time::Duration;
 
 static HALFLIFE_DECAY: LazyLock<f64> = LazyLock::new(|| -(2.0f64.ln()) / SCORE_HALFLIFE);

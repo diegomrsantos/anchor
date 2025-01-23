@@ -3,7 +3,6 @@ use std::future::Future;
 use std::net::Ipv4Addr;
 use std::ops::Deref;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
@@ -24,9 +23,9 @@ use libp2p::swarm::{
 };
 use lighthouse_network::discovery::enr_ext::{QUIC6_ENR_KEY, QUIC_ENR_KEY};
 use lighthouse_network::discovery::DiscoveredPeers;
-use lighthouse_network::{CombinedKeyExt, SubnetDiscovery};
+use lighthouse_network::{CombinedKeyExt};
 use tokio::sync::mpsc;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, warn};
 
 use crate::Config;
 use lighthouse_network::EnrExt;

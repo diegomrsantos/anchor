@@ -13,18 +13,17 @@ use libp2p::{futures, gossipsub, identify, ping, PeerId, Swarm, SwarmBuilder};
 use lighthouse_network::discovery::DiscoveredPeers;
 use lighthouse_network::discv5::enr::k256::sha2::{Digest, Sha256};
 use task_executor::TaskExecutor;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::behaviour::AnchorBehaviour;
 use crate::behaviour::AnchorBehaviourEvent;
 use crate::discovery::{Discovery, FIND_NODE_QUERY_CLOSEST_PEERS};
 use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
-use crate::{peer_manager, Config};
+use crate::Config;
 
 use crate::peer_manager::{PeerManager, PeerManagerEvent};
 use crate::types::ssv_message::SignedSSVMessage;
-use lighthouse_network::EnrExt;
 use ssz::Decode;
 
 pub struct Network {
@@ -136,7 +135,7 @@ impl Network {
                             // The peer manager will subsequently decide which peers need to be dialed and then dial
                             // them.
                             AnchorBehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
-                                let mut peer_manager = &mut self.swarm.behaviour_mut().peer_manager;
+                                let peer_manager = &mut self.swarm.behaviour_mut().peer_manager;
                                 peer_manager.peers_discovered(peers.clone());
                                 debug!(peers =  ?peers, "Peers discovered");
                             }
