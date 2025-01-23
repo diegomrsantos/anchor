@@ -1,3 +1,4 @@
+mod network_behaviour;
 mod peerdb;
 
 use crate::peer_manager::peerdb::PeerDB;
@@ -5,15 +6,6 @@ use delay_map::HashSetDelay;
 use discv5::libp2p_identity::PeerId;
 use discv5::multiaddr::Multiaddr;
 use discv5::Enr;
-use futures::StreamExt;
-use libp2p::core::transport::PortUse;
-use libp2p::core::Endpoint;
-use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
-use libp2p::swarm::dummy::ConnectionHandler;
-use libp2p::swarm::{
-    ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
-    THandlerOutEvent, ToSwarm,
-};
 use lighthouse_network::peer_manager::config::Config;
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::{metrics, EnrExt, SubnetDiscovery};
@@ -21,7 +13,6 @@ use parking_lot::RwLock;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tracing::{debug, error};
 
@@ -213,6 +204,11 @@ impl PeerManager {
         }
     }
 
+    /// Returns the number of libp2p connected peers.
+    pub fn connected_peers(&self) -> usize {
+        self.peers.read().connected_peer_ids().count()
+    }
+
     /// Returns the number of libp2p connected peers with outbound-only connections.
     pub fn connected_outbound_only_peers(&self) -> usize {
         self.peers.read().connected_outbound_only_peers().count()
@@ -258,6 +254,60 @@ impl PeerManager {
             }
         }
     }
+
+    /* Internal functions */
+
+    /// Sets a peer as connected as long as their reputation allows it
+    /// Informs if the peer was accepted
+    fn inject_connect_ingoing(
+        &mut self,
+        peer_id: &PeerId,
+        multiaddr: Multiaddr,
+        enr: Option<Enr>,
+    ) -> bool {
+        self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr)
+    }
+
+    /// Sets a peer as connected as long as their reputation allows it
+    /// Informs if the peer was accepted
+    fn inject_connect_outgoing(
+        &mut self,
+        peer_id: &PeerId,
+        multiaddr: Multiaddr,
+        enr: Option<Enr>,
+    ) -> bool {
+        self.inject_peer_connection(
+            peer_id,
+            ConnectingType::OutgoingConnected { multiaddr },
+            enr,
+        )
+    }
+
+    /// Updates the state of the peer as disconnected.
+    ///
+    /// This is also called when dialing a peer fails.
+    fn inject_disconnect(&mut self, peer_id: &PeerId) {
+        let (_ban_operation, purged_peers) = self
+            .peers
+            .write()
+            .inject_disconnect(peer_id);
+
+        // if let Some(ban_operation) = ban_operation {
+        //     // The peer was awaiting a ban, continue to ban the peer.
+        //     self.handle_ban_operation(peer_id, ban_operation, None);
+        // }
+
+        // Remove the ping and status timer for the peer
+        self.inbound_ping_peers.remove(peer_id);
+        self.outbound_ping_peers.remove(peer_id);
+        self.status_peers.remove(peer_id);
+        self.events.extend(
+            purged_peers
+                .into_iter()
+                .map(|(peer_id, unbanned_ips)| PeerManagerEvent::UnBanned(peer_id, unbanned_ips)),
+        );
+    }
+
 
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
     /// dialed or connecting to us.
@@ -348,139 +398,6 @@ impl PeerManager {
 
         // Maintains memory by shrinking mappings
         self.shrink_mappings();
-    }
-}
-
-impl NetworkBehaviour for PeerManager {
-    type ConnectionHandler = ConnectionHandler;
-    type ToSwarm = PeerManagerEvent;
-
-    fn handle_established_inbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        peer: PeerId,
-        local_addr: &Multiaddr,
-        remote_addr: &Multiaddr,
-    ) -> Result<THandler<Self>, ConnectionDenied> {
-        // TODO check connection limits
-        Ok(ConnectionHandler)
-    }
-
-    fn handle_established_outbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        peer: PeerId,
-        addr: &Multiaddr,
-        role_override: Endpoint,
-        port_use: PortUse,
-    ) -> Result<THandler<Self>, ConnectionDenied> {
-        // TODO check connection limits
-        Ok(ConnectionHandler)
-    }
-
-    fn on_swarm_event(&mut self, event: FromSwarm) {}
-
-    fn on_connection_handler_event(
-        &mut self,
-        _peer_id: PeerId,
-        _connection_id: ConnectionId,
-        _event: THandlerOutEvent<Self>,
-    ) {
-        todo!()
-    }
-
-    fn poll(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        // perform the heartbeat when necessary
-        while self.heartbeat.poll_tick(cx).is_ready() {
-            self.heartbeat();
-        }
-
-        // poll the timeouts for pings and status'
-        loop {
-            match self.inbound_ping_peers.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(peer_id))) => {
-                    self.inbound_ping_peers.insert(peer_id);
-                    self.events.push(PeerManagerEvent::Ping(peer_id));
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    error!(
-                        error = e.to_string(),
-                        "Failed to check for inbound peers to ping"
-                    )
-                }
-                Poll::Ready(None) | Poll::Pending => break,
-            }
-        }
-
-        loop {
-            match self.outbound_ping_peers.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(peer_id))) => {
-                    self.outbound_ping_peers.insert(peer_id);
-                    self.events.push(PeerManagerEvent::Ping(peer_id));
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    error!(
-                        error = e.to_string(),
-                        "Failed to check for outbound peers to ping"
-                    )
-                }
-                Poll::Ready(None) | Poll::Pending => break,
-            }
-        }
-
-        // if !matches!(
-        //     self.network_globals.sync_state(),
-        //     SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. }
-        // ) {
-        //     loop {
-        //         match self.status_peers.poll_next_unpin(cx) {
-        //             Poll::Ready(Some(Ok(peer_id))) => {
-        //                 self.status_peers.insert(peer_id);
-        //                 self.events.push(PeerManagerEvent::Status(peer_id))
-        //             }
-        //             Poll::Ready(Some(Err(e))) => {
-        //                 error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
-        //             }
-        //             Poll::Ready(None) | Poll::Pending => break,
-        //         }
-        //     }
-        // }
-
-        if !self.events.is_empty() {
-            return Poll::Ready(ToSwarm::GenerateEvent(self.events.remove(0)));
-        } else {
-            self.events.shrink_to_fit();
-        }
-
-        if let Some(enr) = self.peers_to_dial.pop() {
-            self.inject_peer_connection(&enr.peer_id(), ConnectingType::Dialing, Some(enr.clone()));
-
-            // Prioritize Quic connections over Tcp ones.
-            let multiaddrs = [
-                self.quic_enabled
-                    .then_some(enr.multiaddr_quic())
-                    .unwrap_or_default(),
-                enr.multiaddr_tcp(),
-            ]
-            .concat();
-
-            debug!(
-                peer_id = %enr.peer_id(),
-                multiaddrs = ?multiaddrs,
-                "Dialing peer"
-            );
-            return Poll::Ready(ToSwarm::Dial {
-                opts: DialOpts::peer_id(enr.peer_id())
-                    .condition(PeerCondition::Disconnected)
-                    .addresses(multiaddrs)
-                    .build(),
-            });
-        }
-
-        Poll::Pending
     }
 }
 

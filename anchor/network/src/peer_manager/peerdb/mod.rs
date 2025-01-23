@@ -4,7 +4,7 @@ use crate::discovery::SSVSubnet;
 use crate::Enr;
 use itertools::Itertools;
 use libp2p::{Multiaddr, PeerId};
-use lighthouse_network::{metrics, Gossipsub, PeerAction, Subnet};
+use lighthouse_network::{metrics, Gossipsub, PeerAction};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use score::{ReportSource, Score, ScoreState};
 use std::net::IpAddr;
@@ -16,7 +16,6 @@ use std::{
 };
 use sync_status::SyncStatus;
 use tracing::{debug, error, trace, warn};
-use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub mod client;
 pub mod peer_info;
@@ -507,7 +506,7 @@ impl PeerDB {
         &mut self,
         peer_id: &PeerId,
         action: PeerAction,
-        source: ReportSource,
+        _source: ReportSource,
         msg: &'static str,
     ) -> ScoreUpdateResult {
         metrics::inc_counter_vec(&metrics::REPORT_PEER_MSGS, &[msg]);
