@@ -287,10 +287,7 @@ impl PeerManager {
     ///
     /// This is also called when dialing a peer fails.
     fn inject_disconnect(&mut self, peer_id: &PeerId) {
-        let (_ban_operation, purged_peers) = self
-            .peers
-            .write()
-            .inject_disconnect(peer_id);
+        let (_ban_operation, purged_peers) = self.peers.write().inject_disconnect(peer_id);
 
         // if let Some(ban_operation) = ban_operation {
         //     // The peer was awaiting a ban, continue to ban the peer.
@@ -307,7 +304,6 @@ impl PeerManager {
                 .map(|(peer_id, unbanned_ips)| PeerManagerEvent::UnBanned(peer_id, unbanned_ips)),
         );
     }
-
 
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
     /// dialed or connecting to us.

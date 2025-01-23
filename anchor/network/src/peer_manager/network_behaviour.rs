@@ -1,6 +1,6 @@
 use crate::peer_manager::{ConnectingType, PeerManager, PeerManagerEvent};
 use discv5::libp2p_identity::PeerId;
-use discv5::multiaddr::{Multiaddr};
+use discv5::multiaddr::Multiaddr;
 use futures::StreamExt;
 use libp2p::core::transport::PortUse;
 use libp2p::core::{ConnectedPoint, Endpoint};
@@ -41,10 +41,10 @@ impl NetworkBehaviour for PeerManager {
         // Check the connection limits
         if self.connected_or_dialing_peers() >= self.max_peers()
             && self
-            .peers
-            .read()
-            .peer_info(&peer_id)
-            .map_or(true, |peer| !peer.has_future_duty())
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map_or(true, |peer| !peer.has_future_duty())
         {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",
@@ -85,10 +85,10 @@ impl NetworkBehaviour for PeerManager {
         // Check the connection limits
         if self.connected_peers() >= self.max_outbound_dialing_peers()
             && self
-            .peers
-            .read()
-            .peer_info(&peer_id)
-            .map_or(true, |peer| !peer.has_future_duty())
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map_or(true, |peer| !peer.has_future_duty())
         {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",
@@ -286,11 +286,7 @@ impl PeerManager {
         }
 
         // There are no more connections
-        if self
-            .peers
-            .read()
-            .is_connected_or_disconnecting(&peer_id)
-        {
+        if self.peers.read().is_connected_or_disconnecting(&peer_id) {
             // We are disconnecting the peer or the peer has already been connected.
             // Both these cases, the peer has been previously registered by the peer manager and
             // potentially the application layer.
@@ -330,4 +326,3 @@ impl PeerManager {
         }
     }
 }
-

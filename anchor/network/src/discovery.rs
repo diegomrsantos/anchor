@@ -23,7 +23,7 @@ use libp2p::swarm::{
 };
 use lighthouse_network::discovery::enr_ext::{QUIC6_ENR_KEY, QUIC_ENR_KEY};
 use lighthouse_network::discovery::DiscoveredPeers;
-use lighthouse_network::{CombinedKeyExt};
+use lighthouse_network::CombinedKeyExt;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
