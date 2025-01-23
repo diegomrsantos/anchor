@@ -46,7 +46,7 @@ const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = GOSSIPSUB_NEGATIVE_SCORE_WEIGHT;
 #[derive(Debug)]
 pub enum ReportSource {
     Gossipsub,
-    RPC,
+    Rpc,
     Processor,
     SyncService,
     PeerManager,
@@ -56,7 +56,7 @@ impl From<ReportSource> for &'static str {
     fn from(report_source: ReportSource) -> &'static str {
         match report_source {
             ReportSource::Gossipsub => "gossipsub",
-            ReportSource::RPC => "rpc_error",
+            ReportSource::Rpc => "rpc_error",
             ReportSource::Processor => "processor",
             ReportSource::SyncService => "sync",
             ReportSource::PeerManager => "peer_manager",

@@ -172,7 +172,7 @@ impl PeerInfo {
         if let Some(meta_data) = self.meta_data.as_ref() {
             return meta_data.subnets.num_set_bits();
         } else if let Some(enr) = self.enr.as_ref() {
-            if let Ok(attnets) = subnets_bitfield(&enr) {
+            if let Ok(attnets) = subnets_bitfield(enr) {
                 return attnets.num_set_bits();
             }
         }
