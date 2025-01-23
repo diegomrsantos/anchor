@@ -14,6 +14,7 @@ ethereum_ssz = "0.8.1"
 ethereum_ssz_derive = "0.8.1"
 futures = { workspace = true }
 hex = "0.4.3"
+itertools = "0.10.5"
 libp2p = { version = "0.54", default-features = false, features = [
   "identify",
   "yamux",
@@ -31,13 +32,12 @@ parking_lot = { workspace = true }
 serde = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = "0.10"
+strum = "0.24.1"
 task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 version = { workspace = true }
-itertools = "0.10.5"
-strum = "0.24.1"
 
 [dev-dependencies]
 async-channel = { workspace = true }
