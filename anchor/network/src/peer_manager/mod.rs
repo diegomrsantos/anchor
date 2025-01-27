@@ -44,7 +44,7 @@ pub struct PeerManager {
     /// Peers queued to be dialed.
     peers_to_dial: Vec<Enr>,
     /// A queue of events that the `PeerManager` is waiting to produce.
-    events: SmallVec<PeerManagerEvent, 16>,
+    events: SmallVec<[PeerManagerEvent; 16]>,
     /// A collection of inbound-connected peers awaiting to be Ping'd.
     inbound_ping_peers: HashSetDelay<PeerId>,
     /// A collection of outbound-connected peers awaiting to be Ping'd.
