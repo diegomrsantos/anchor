@@ -1,5 +1,6 @@
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -22,9 +23,11 @@ use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
 
+use crate::handshake::behaviour::HandshakeBehaviour;
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
+use crate::handshake::types::{NodeInfo, NodeMetadata};
 use subnet_tracker::{SubnetEvent, SubnetId};
 use tokio::sync::mpsc;
 
@@ -157,6 +160,13 @@ impl Network {
                             _ => {
                                 debug!(event = ?behaviour_event, "Unhandled behaviour event");
                             }
+                            // HandshakeEvent::Completed { peer, their_info } => {
+                            //     info!(%peer, "Handshake completed");
+                            //     // Update peer store with their_info
+                            // }
+                            // HandshakeEvent::Failed { peer, error } => {
+                            //     warn!(%peer, %error, "Handshake failed");
+                            // }
                         },
                         // TODO handle other swarm events
                         _ => {
@@ -212,6 +222,18 @@ fn subnet_to_topic(subnet: SubnetId) -> IdentTopic {
     IdentTopic::new(format!("ssv.{}", *subnet))
 }
 
+// fn handle_handshake_event(ev: HandshakeEvent) {
+//     match ev {
+//         HandshakeEvent::Completed { peer, their_info } => {
+//             info!(%peer, "Handshake completed");
+//             // Update peer store with their_info
+//         }
+//         HandshakeEvent::Failed { peer, error } => {
+//             warn!(%peer, %error, "Handshake failed");
+//         }
+//     }
+// }
+
 async fn build_anchor_behaviour(
     local_keypair: Keypair,
     network_config: &Config,
@@ -266,11 +288,28 @@ async fn build_anchor_behaviour(
         discovery
     };
 
+    let domain = format!("0x{}", hex::encode(vec![0x0, 0x0, 0x5, 0x2]));
+    println!("Domain: {}", domain);
+    let node_info = NodeInfo::new(
+        domain,
+        NodeMetadata {
+            node_version: "1.0.0".to_string(),
+            execution_node: "geth/v1.10.8".to_string(),
+            consensus_node: "lighthouse/v1.5.0".to_string(),
+            subnets: "ffffffffffffffffffffffffffffffff".to_string(),
+        },
+    );
+    let handshake = HandshakeBehaviour::new(
+        local_keypair.clone(),
+        Arc::new(Mutex::new(node_info)),
+    );
+
     AnchorBehaviour {
         identify,
         ping: ping::Behaviour::default(),
         gossipsub,
         discovery,
+        handshake,
     }
 }
 
