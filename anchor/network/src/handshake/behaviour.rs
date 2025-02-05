@@ -17,8 +17,7 @@ use std::time::Instant;
 use tracing::debug;
 use crate::handshake::codec::EnvelopeCodec;
 use crate::handshake::record::envelope::Envelope;
-use crate::handshake::record::record::Record;
-use crate::handshake::record::signing::{parse_envelope, seal_record};
+use crate::handshake::record::signing::{parse_envelope};
 use crate::handshake::types::NodeInfo;
 
 /// Event emitted on handshake completion or failure.
@@ -66,7 +65,7 @@ impl HandshakeBehaviour
     /// Create a signed envelope containing local node info.
     fn sealed_node_record(&self) -> Envelope {
         let node_info = self.local_node_info.lock().unwrap().clone();
-        seal_record(&node_info, &self.keypair).unwrap()
+        node_info.seal(&self.keypair).unwrap()
     }
 
     /// Verify an incoming envelope and apply filters.
@@ -103,6 +102,28 @@ impl HandshakeBehaviour
                 peer,
                 error: "error".to_string(),
             }),
+        }
+    }
+
+    fn handle_handshake_response(&mut self, request_id: &OutboundRequestId, response: &Envelope) {
+        // Handle outgoing response
+        if let Some(peer) = self.pending_handshakes.remove(&request_id) {
+            let mut their_info = NodeInfo::default();
+            their_info.unmarshal_record(&response.payload);
+
+            match self.verify_node_info(&their_info, peer) {
+                Ok(_) => {
+                    debug!(?their_info, "Handshake completed");
+                    self.events.push(HandshakeEvent::Completed { peer, their_info })
+                }
+                Err(e) => {
+                    self.events.push(HandshakeEvent::Failed {
+                        peer,
+                        error: "error".to_string(),
+                    });
+                    debug!(?e, "Handshake failed");
+                },
+            }
         }
     }
 }
@@ -194,27 +215,8 @@ impl NetworkBehaviour for HandshakeBehaviour
                             },
                         ..
                     } => {
-                        // Handle outgoing response
-                        if let Some(peer) = self.pending_handshakes.remove(&request_id) {
-                            debug!(?response, "Received handshake response");
-
-                            let mut their_info = NodeInfo::default();
-                            their_info.unmarshal_record(&response.payload);
-
-                            match self.verify_node_info(&their_info, peer) {
-                                Ok(_) => {
-                                    debug!(?their_info, "Handshake completed");
-                                    self.events.push(HandshakeEvent::Completed { peer, their_info })
-                                }
-                                Err(e) => {
-                                    self.events.push(HandshakeEvent::Failed {
-                                        peer,
-                                        error: "error".to_string(),
-                                    });
-                                    debug!(?e, "Handshake failed");
-                                },
-                            }
-                        }
+                        debug!(?response, "Received handshake response");
+                        self.handle_handshake_response(&request_id, &response);
                     }
                     Event::OutboundFailure {
                         request_id,

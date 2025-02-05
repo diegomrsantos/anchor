@@ -1,7 +1,9 @@
-use crate::handshake::record::record::Record;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::error::Error;
+use discv5::libp2p_identity::Keypair;
+use crate::handshake::record::envelope::Envelope;
+use crate::handshake::record::signing::make_unsigned;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct NodeMetadata {
@@ -21,7 +23,7 @@ pub struct NodeInfo {
     pub metadata: Option<NodeMetadata>,
 }
 
-// This is the direct Rust equivalent to your 'serializable' struct
+// This is the direct Rust equivalent to Go 'serializable' struct
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct Serializable {
     #[serde(rename = "Entries")]
@@ -35,12 +37,10 @@ impl NodeInfo {
             metadata,
         }
     }
-}
 
-impl Record for NodeInfo {
-    const DOMAIN: &'static str = "ssv";
+    pub(crate) const DOMAIN: &'static str = "ssv";
 
-    const CODEC: &'static [u8] = b"ssv/nodeinfo";
+    pub(crate) const CODEC: &'static [u8] = b"ssv/nodeinfo";
 
     /// Serialize `NodeInfo` to JSON bytes.
     fn marshal_record(&self) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -61,7 +61,7 @@ impl Record for NodeInfo {
     }
 
     /// Deserialize `NodeInfo` from JSON bytes, replacing `self`.
-    fn unmarshal_record(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
+    pub fn unmarshal_record(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
         let ser: Serializable = serde_json::from_slice(data)?;
         if ser.entries.len() < 2 {
             return Err("node info must have at least 2 entries".into());
@@ -74,13 +74,46 @@ impl Record for NodeInfo {
         }
         Ok(())
     }
+
+    /// Seals a `Record` into an Envelope by:
+    ///  1) marshalling record to bytes,
+    ///  2) building "unsigned" data (domain + codec + payload),
+    ///  3) signing with ed25519,
+    ///  4) storing into `Envelope`.
+    pub fn seal(&self,  keypair: &Keypair) -> Result<Envelope, Box<dyn Error>> {
+        let domain = Self::DOMAIN;
+        if domain.is_empty() {
+            return Err("domain must not be empty".into());
+        }
+        let payload_type = Self::CODEC;
+        if payload_type.is_empty() {
+            return Err("payload_type must not be empty".into());
+        }
+
+        // 1) marshal
+        let raw_payload = self.marshal_record()?;
+
+        // 2) build the "unsigned" data
+        let unsigned = make_unsigned(domain.as_bytes(), payload_type, &raw_payload);
+
+        // 3) sign
+        let sig = keypair.sign(&unsigned)?;
+
+        // 4) build Envelope
+        let env = Envelope {
+            public_key: keypair.public().encode_protobuf(),
+            payload_type: payload_type.to_vec(),
+            payload: raw_payload,
+            signature: sig,
+        };
+        Ok(env)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use libp2p::identity::Keypair;
-    use crate::handshake::record::record::Record;
-    use crate::handshake::record::signing::{parse_envelope, seal_record};
+    use crate::handshake::record::signing::{parse_envelope};
     use crate::handshake::types::{NodeInfo, NodeMetadata};
 
     #[test]
@@ -97,11 +130,11 @@ mod tests {
         );
 
         // Marshal the NodeInfo into bytes
-        let envelope = seal_record(&node_info, &Keypair::generate_secp256k1()).expect("Seal failed");
+        let envelope = node_info.seal(&Keypair::generate_secp256k1()).expect("Seal failed");
 
         let data = envelope.encode_to_vec().unwrap();
 
-        let parsed_env = parse_envelope::<NodeInfo>(&data).expect("Consume failed");
+        let parsed_env = parse_envelope(&data).expect("Consume failed");
         let mut parsed_node_info = NodeInfo::default();
         parsed_node_info.unmarshal_record(&parsed_env.payload).expect("TODO: panic message");
 

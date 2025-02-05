@@ -53,7 +53,7 @@ impl Codec for EnvelopeCodec {
         let num_bytes_read = io.read_to_end(&mut msg_buf).await?;
         debug!(?num_bytes_read, "read handshake response");
 
-        let env = parse_envelope::<NodeInfo>(&msg_buf).unwrap();
+        let env = parse_envelope(&msg_buf).unwrap();
 
         debug!(?env, "decoded handshake response");
          Ok(env)
