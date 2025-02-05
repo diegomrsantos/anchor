@@ -23,7 +23,7 @@ use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
 
-use crate::handshake::behaviour::HandshakeBehaviour;
+use crate::handshake::behaviour::{HandshakeBehaviour, HandshakeEvent};
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
@@ -156,6 +156,9 @@ impl Network {
                                     }
                                 }
                             }
+                            AnchorBehaviourEvent::Handshake(ev) => {
+                                handle_handshake_event(ev);
+                            }
                             // TODO handle other behaviour events
                             _ => {
                                 debug!(event = ?behaviour_event, "Unhandled behaviour event");
@@ -222,17 +225,17 @@ fn subnet_to_topic(subnet: SubnetId) -> IdentTopic {
     IdentTopic::new(format!("ssv.{}", *subnet))
 }
 
-// fn handle_handshake_event(ev: HandshakeEvent) {
-//     match ev {
-//         HandshakeEvent::Completed { peer, their_info } => {
-//             info!(%peer, "Handshake completed");
-//             // Update peer store with their_info
-//         }
-//         HandshakeEvent::Failed { peer, error } => {
-//             warn!(%peer, %error, "Handshake failed");
-//         }
-//     }
-// }
+fn handle_handshake_event(ev: HandshakeEvent) {
+    match ev {
+        HandshakeEvent::Completed { peer, their_info } => {
+            debug!(%peer, "Handshake completed");
+            // Update peer store with their_info
+        }
+        HandshakeEvent::Failed { peer, error } => {
+            debug!(%peer, %error, "Handshake failed");
+        }
+    }
+}
 
 async fn build_anchor_behaviour(
     local_keypair: Keypair,
