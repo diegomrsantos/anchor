@@ -19,7 +19,7 @@ pub struct Envelope {
     #[prost(bytes = "vec", tag = "3")]
     pub payload: Vec<u8>,
 
-    #[prost(bytes = "vec", tag = "4")]
+    #[prost(bytes = "vec", tag = "5")]
     pub signature: Vec<u8>,
 }
 
