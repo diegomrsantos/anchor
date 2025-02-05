@@ -163,13 +163,6 @@ impl Network {
                             _ => {
                                 debug!(event = ?behaviour_event, "Unhandled behaviour event");
                             }
-                            // HandshakeEvent::Completed { peer, their_info } => {
-                            //     info!(%peer, "Handshake completed");
-                            //     // Update peer store with their_info
-                            // }
-                            // HandshakeEvent::Failed { peer, error } => {
-                            //     warn!(%peer, %error, "Handshake failed");
-                            // }
                         },
                         // TODO handle other swarm events
                         _ => {

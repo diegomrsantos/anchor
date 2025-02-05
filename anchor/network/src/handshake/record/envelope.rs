@@ -44,7 +44,7 @@ mod tests {
     use super::*;  // brings `seal`, `consume_envelope`, `Record`, etc. into scope
     use rand::rngs::OsRng;
     use crate::handshake::record::record::Record;
-    use crate::handshake::record::signing::{consume_envelope, seal_record};
+    use crate::handshake::record::signing::{parse_envelope, seal_record};
 
     // A minimal “Record” that matches the logic in the Go test
     #[derive(Default, Debug, Clone)]
@@ -92,8 +92,8 @@ mod tests {
         let serialized = env.encode_to_vec().unwrap();
 
         // 6. Consume and verify
-        let (roundtrip_env, rec2) =
-            consume_envelope::<SimpleRecord>(&serialized).expect("consume_envelope should succeed");
+        let roundtrip_env =
+            parse_envelope::<SimpleRecord>(&serialized).expect("consume_envelope should succeed");
 
         // 7. Check the payload is the same
         assert_eq!(roundtrip_env.payload, env.payload, "payload mismatch");
@@ -102,7 +102,12 @@ mod tests {
             "signature mismatch"
         );
 
+        let mut parsed_rec = SimpleRecord::default();
+        parsed_rec
+            .unmarshal_record(&roundtrip_env.payload)
+            .expect("unmarshal_record should succeed");
+
         // 8. Check the domain record
-        assert_eq!(rec2.message, "hello world!", "unexpected message");
+        assert_eq!(parsed_rec.message, "hello world!", "unexpected message");
     }
 }

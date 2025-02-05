@@ -40,7 +40,7 @@ impl NodeInfo {
 impl Record for NodeInfo {
     const DOMAIN: &'static str = "ssv";
 
-    const CODEC: &'static [u8] = b"ssv:nodeinfo";
+    const CODEC: &'static [u8] = b"ssv/nodeinfo";
 
     /// Serialize `NodeInfo` to JSON bytes.
     fn marshal_record(&self) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -76,18 +76,11 @@ impl Record for NodeInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum HandshakeMessage {
-    Request(NodeInfo),
-    Response(NodeInfo),
-}
-
-
 #[cfg(test)]
 mod tests {
     use libp2p::identity::Keypair;
     use crate::handshake::record::record::Record;
-    use crate::handshake::record::signing::{consume_envelope, seal_record};
+    use crate::handshake::record::signing::{parse_envelope, seal_record};
     use crate::handshake::types::{NodeInfo, NodeMetadata};
 
     #[test]
@@ -108,7 +101,9 @@ mod tests {
 
         let data = envelope.encode_to_vec().unwrap();
 
-        let (parsed_env, parsed_node_info) = consume_envelope(&data).expect("Consume failed");
+        let parsed_env = parse_envelope::<NodeInfo>(&data).expect("Consume failed");
+        let mut parsed_node_info = NodeInfo::default();
+        parsed_node_info.unmarshal_record(&parsed_env.payload).expect("TODO: panic message");
 
         assert_eq!(node_info, parsed_node_info);
     }

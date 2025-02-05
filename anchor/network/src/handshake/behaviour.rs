@@ -2,9 +2,7 @@ use discv5::libp2p_identity::Keypair;
 use discv5::multiaddr::Multiaddr;
 use libp2p::core::transport::PortUse;
 use libp2p::core::Endpoint;
-use libp2p::request_response::{
-    self, Behaviour, Config, Event, OutboundRequestId, ProtocolSupport,
-};
+use libp2p::request_response::{self, Behaviour, Config, Event, OutboundRequestId, ProtocolSupport, ResponseChannel};
 use libp2p::swarm::{
     ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
     THandlerOutEvent, ToSwarm,
@@ -19,42 +17,15 @@ use std::time::Instant;
 use tracing::debug;
 use crate::handshake::codec::EnvelopeCodec;
 use crate::handshake::record::envelope::Envelope;
-use crate::handshake::record::signing::{consume_envelope, seal_record};
+use crate::handshake::record::record::Record;
+use crate::handshake::record::signing::{parse_envelope, seal_record};
 use crate::handshake::types::NodeInfo;
 
 /// Event emitted on handshake completion or failure.
 #[derive(Debug)]
 pub enum HandshakeEvent {
-    Completed { peer: PeerId, info: NodeInfo },
+    Completed { peer: PeerId, their_info: NodeInfo },
     Failed { peer: PeerId, error: String },
-}
-
-/// Trait for updating peer information.
-pub trait PeerInfoStore: Send + Sync {
-    fn update(&self, peer: PeerId, f: impl FnOnce(&mut PeerInfo));
-}
-
-/// Trait for updating peer subnets.
-pub trait SubnetsIndex: Send + Sync {
-    fn update_peer_subnets(&self, peer: PeerId, subnets: Subnets);
-}
-
-/// Information about a peer.
-#[derive(Clone, Debug, Default)]
-pub struct PeerInfo {
-    pub last_handshake: Option<Instant>,
-    pub last_error: Option<String>,
-}
-
-/// Subnets type (example implementation).
-#[derive(Clone, Debug, Default)]
-pub struct Subnets;
-
-impl Subnets {
-    pub fn from_str(s: &str) -> Result<Self, Box<dyn Error>> {
-        // Parse subnets from string
-        Ok(Subnets)
-    }
 }
 
 /// Network behaviour handling the handshake protocol.
@@ -67,28 +38,15 @@ pub struct HandshakeBehaviour {
     keypair: Keypair,
     /// Local node's information.
     local_node_info: Arc<Mutex<NodeInfo>>,
-    /// Filters to apply on received node info.
-    //filters: Vec<Box<dyn Fn(PeerId, &NodeInfo) -> Result<(), Box<dyn Error>> + Send + Sync>>,
-    /// Peer info storage.
-    //peer_info: Arc<P>,
-    /// Subnets index.
-    //subnets_index: Arc<S>,
     /// Events to emit.
     events: Vec<HandshakeEvent>,
 }
 
-//impl<S, P> HandshakeBehaviour<S, P>
 impl HandshakeBehaviour
-// where
-//     P: PeerInfoStore,
-//     S: SubnetsIndex,
 {
     pub fn new(
         keypair: Keypair,
         local_node_info: Arc<Mutex<NodeInfo>>,
-        // peer_info: Arc<P>,
-        // subnets_index: Arc<S>,
-        // filters: Vec<Box<dyn Fn(PeerId, &NodeInfo) -> Result<(), Box<dyn Error>> + Send + Sync>>,
     ) -> Self {
         // NodeInfoProtocol is the protocol.ID used for handshake
         const NODE_INFO_PROTOCOL: &'static str = "/ssv/info/0.0.1";
@@ -101,9 +59,6 @@ impl HandshakeBehaviour
             pending_handshakes: HashMap::new(),
             keypair,
             local_node_info,
-            // filters,
-            // peer_info,
-            // subnets_index,
             events: Vec::new(),
         }
     }
@@ -115,38 +70,44 @@ impl HandshakeBehaviour
     }
 
     /// Verify an incoming envelope and apply filters.
-    fn verify_envelope(
+    fn verify_node_info(
         &mut self,
-        envelope: &Envelope,
+        node_info: &NodeInfo,
         peer: PeerId,
-    ) -> Result<NodeInfo, Box<dyn Error>> {
-        let (_, mut node_info) = consume_envelope::<NodeInfo>(&envelope.encode_to_vec()?)?;
+    ) -> Result<(), Box<dyn Error>> {
 
-        // Apply all filters
-        // for filter in &self.filters {
-        //     filter(peer, &node_info)?;
-        // }
+        if node_info.network_id != self.local_node_info.lock().unwrap().network_id {
+            return Err("network id mismatch".into())
+        }
 
-        // Update peer info
-        // self.peer_info.update(peer, |info| {
-        //     info.last_handshake = Some(Instant::now());
-        //     info.last_error = None;
-        // });
+        Ok(())
+    }
 
-        // Update subnets
-        // if let Ok(subnets) = Subnets::from_str(node_info.metadata.subnets.as_str()) {
-        //     self.subnets_index.update_peer_subnets(peer, subnets);
-        // }
-
-        Ok(node_info)
+    fn handle_handshake_request(&mut self, peer: PeerId, channel: ResponseChannel<Envelope>) {
+        // Handle incoming request: send response then verify
+        let response = self.sealed_node_record();
+        match self.behaviour.send_response(channel, response.clone()) {
+            Ok(_) => {}
+            Err(e) => {
+                self.events.push(HandshakeEvent::Failed {
+                    peer,
+                    error: "error".to_string(),
+                });
+            }
+        }
+        let mut their_info = NodeInfo::default();
+        their_info.unmarshal_record(&response.payload);
+        match self.verify_node_info(&their_info, peer) {
+            Ok(_) => self.events.push(HandshakeEvent::Completed { peer, their_info }),
+            Err(e) => self.events.push(HandshakeEvent::Failed {
+                peer,
+                error: "error".to_string(),
+            }),
+        }
     }
 }
 
 impl NetworkBehaviour for HandshakeBehaviour
-//impl<S, P> NetworkBehaviour for HandshakeBehaviour<S, P>
-// where
-//     P: PeerInfoStore,
-//     S: SubnetsIndex,
 {
     type ConnectionHandler = <Behaviour<EnvelopeCodec> as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = HandshakeEvent;
@@ -222,25 +183,7 @@ impl NetworkBehaviour for HandshakeBehaviour
                             },
                     } => {
                         debug!("Received handshake request");
-                        // Handle incoming request: send response then verify
-                        let response = self.sealed_node_record();
-                        match self.behaviour.send_response(channel, response) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                self.events.push(HandshakeEvent::Failed {
-                                    peer,
-                                    error: "error".to_string(),
-                                });
-                            }
-                        }
-
-                        match self.verify_envelope(&request, peer) {
-                            Ok(info) => self.events.push(HandshakeEvent::Completed { peer, info }),
-                            Err(e) => self.events.push(HandshakeEvent::Failed {
-                                peer,
-                                error: "error".to_string(),
-                            }),
-                        }
+                        self.handle_handshake_request(peer, channel);
                     }
                     Event::Message {
                         message:
@@ -254,14 +197,22 @@ impl NetworkBehaviour for HandshakeBehaviour
                         // Handle outgoing response
                         if let Some(peer) = self.pending_handshakes.remove(&request_id) {
                             debug!(?response, "Received handshake response");
-                            match self.verify_envelope(&response, peer) {
-                                Ok(info) => {
-                                    self.events.push(HandshakeEvent::Completed { peer, info })
+
+                            let mut their_info = NodeInfo::default();
+                            their_info.unmarshal_record(&response.payload);
+
+                            match self.verify_node_info(&their_info, peer) {
+                                Ok(_) => {
+                                    debug!(?their_info, "Handshake completed");
+                                    self.events.push(HandshakeEvent::Completed { peer, their_info })
                                 }
-                                Err(e) => self.events.push(HandshakeEvent::Failed {
-                                    peer,
-                                    error: "error".to_string(),
-                                }),
+                                Err(e) => {
+                                    self.events.push(HandshakeEvent::Failed {
+                                        peer,
+                                        error: "error".to_string(),
+                                    });
+                                    debug!(?e, "Handshake failed");
+                                },
                             }
                         }
                     }
@@ -287,18 +238,6 @@ impl NetworkBehaviour for HandshakeBehaviour
                     }
                     _ => {}
                 },
-                ToSwarm::Dial { opts } => return Poll::Ready(ToSwarm::Dial { opts }),
-                ToSwarm::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                } => {
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id,
-                        handler,
-                        event,
-                    });
-                }
                 _ => {}
             }
         }

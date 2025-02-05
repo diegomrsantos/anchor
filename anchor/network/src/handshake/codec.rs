@@ -9,6 +9,8 @@ use prost::bytes::BytesMut;
 use prost::encoding::{decode_varint, encode_varint, encoded_len_varint};
 use prost::Message;
 use tracing::debug;
+use crate::handshake::record::signing::parse_envelope;
+use crate::handshake::types::NodeInfo;
 
 /// A `Codec` that reads/writes an **`Envelope`**
 #[derive(Clone, Debug, Default)]
@@ -50,8 +52,9 @@ impl Codec for EnvelopeCodec {
         let mut msg_buf = Vec::new();
         let num_bytes_read = io.read_to_end(&mut msg_buf).await?;
         debug!(?num_bytes_read, "read handshake response");
-        let env = Envelope::decode_from_slice(&msg_buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        let env = parse_envelope::<NodeInfo>(&msg_buf).unwrap();
+
         debug!(?env, "decoded handshake response");
          Ok(env)
     }

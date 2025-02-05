@@ -39,9 +39,9 @@ pub fn seal_record<R: Record>(record: &R, keypair: &Keypair) -> Result<Envelope,
 }
 
 /// Consumes an Envelope => verify signature => parse the record.
-pub fn consume_envelope<R: Record + Default>(
+pub fn parse_envelope<R: Record>(
     bytes: &[u8],
-) -> Result<(Envelope, R), Box<dyn Error>> {
+) -> Result<(Envelope), Box<dyn Error>> {
     let env = Envelope::decode_from_slice(bytes)?;
 
     let domain = R::DOMAIN;
@@ -49,24 +49,13 @@ pub fn consume_envelope<R: Record + Default>(
 
     let unsigned = make_unsigned(domain.as_bytes(), payload_type, &env.payload);
 
-    // parse the record from env.payload
-    let mut rec = R::default();
-    rec.unmarshal_record(&env.payload)?;
-
-    // parse pubkey
-    // if env.public_key.len() != 32 {
-    //     return Err(format!("invalid ed25519 public key length: {}", env.public_key.len()).into());
-    // }
-    //let mut pk_bytes = [0u8; 32];
-    //pk_bytes.copy_from_slice(&env.public_key);
-    let pk = PublicKey::try_decode_protobuf(&*env.clone().public_key.to_vec()).unwrap();
-
+    let pk = PublicKey::try_decode_protobuf(&*env.public_key.to_vec()).unwrap();
 
     if !pk.verify(&unsigned, &env.signature) {
         return Err("signature verification failed".into());
     }
 
-    Ok((env, rec))
+    Ok(env)
 }
 
 fn make_unsigned(domain: &[u8], payload_type: &[u8], payload: &[u8]) -> Vec<u8> {
