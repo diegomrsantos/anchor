@@ -292,12 +292,12 @@ async fn build_anchor_behaviour(
     println!("Domain: {}", domain);
     let node_info = NodeInfo::new(
         domain,
-        NodeMetadata {
+        Some(NodeMetadata {
             node_version: "1.0.0".to_string(),
             execution_node: "geth/v1.10.8".to_string(),
             consensus_node: "lighthouse/v1.5.0".to_string(),
             subnets: "ffffffffffffffffffffffffffffffff".to_string(),
-        },
+        }),
     );
     let handshake = HandshakeBehaviour::new(
         local_keypair.clone(),
