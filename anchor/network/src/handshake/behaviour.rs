@@ -16,8 +16,7 @@ use std::task::{Context, Poll};
 use std::time::Instant;
 use tracing::debug;
 use crate::handshake::codec::EnvelopeCodec;
-use crate::handshake::record::envelope::Envelope;
-use crate::handshake::record::signing::{parse_envelope};
+use crate::handshake::envelope::Envelope;
 use crate::handshake::types::NodeInfo;
 
 /// Event emitted on handshake completion or failure.

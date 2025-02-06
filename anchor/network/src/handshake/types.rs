@@ -2,8 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::error::Error;
 use discv5::libp2p_identity::Keypair;
-use crate::handshake::record::envelope::Envelope;
-use crate::handshake::record::signing::make_unsigned;
+use crate::handshake::envelope::{make_unsigned, Envelope};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct NodeMetadata {
@@ -113,7 +112,7 @@ impl NodeInfo {
 #[cfg(test)]
 mod tests {
     use libp2p::identity::Keypair;
-    use crate::handshake::record::signing::{parse_envelope};
+    use crate::handshake::envelope::parse_envelope;
     use crate::handshake::types::{NodeInfo, NodeMetadata};
 
     #[test]

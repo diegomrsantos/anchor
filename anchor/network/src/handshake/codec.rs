@@ -1,4 +1,4 @@
-use crate::handshake::record::envelope::Envelope;
+use crate::handshake::envelope::{parse_envelope, Envelope};
 use futures::{AsyncReadExt, AsyncWriteExt};
 use libp2p::futures::{AsyncRead, AsyncWrite};
 use libp2p::request_response::Codec;
@@ -9,7 +9,6 @@ use prost::bytes::BytesMut;
 use prost::encoding::{decode_varint, encode_varint, encoded_len_varint};
 use prost::Message;
 use tracing::debug;
-use crate::handshake::record::signing::parse_envelope;
 use crate::handshake::types::NodeInfo;
 
 /// A `Codec` that reads/writes an **`Envelope`**
