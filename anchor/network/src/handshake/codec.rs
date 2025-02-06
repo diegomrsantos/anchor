@@ -89,8 +89,8 @@ impl Codec for EnvelopeCodec {
             .encode_to_vec()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         io.write_all(&raw).await?;
-        let r = io.close().await;
+        io.close().await?;
         debug!("wrote handshake response");
-        r
+        Ok(())
     }
 }
