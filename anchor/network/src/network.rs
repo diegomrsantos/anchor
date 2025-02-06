@@ -220,12 +220,12 @@ fn subnet_to_topic(subnet: SubnetId) -> IdentTopic {
 
 fn handle_handshake_event(ev: HandshakeEvent) {
     match ev {
-        HandshakeEvent::Completed { peer, their_info } => {
-            debug!(%peer, "Handshake completed");
+        HandshakeEvent::Completed { peer_id, their_info } => {
+            debug!(%peer_id, ?their_info, "Handshake completed");
             // Update peer store with their_info
         }
-        HandshakeEvent::Failed { peer, error } => {
-            debug!(%peer, %error, "Handshake failed");
+        HandshakeEvent::Failed { peer_id, error } => {
+            debug!(%peer_id, ?error, "Handshake failed");
         }
     }
 }

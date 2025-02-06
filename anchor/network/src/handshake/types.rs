@@ -3,6 +3,7 @@ use serde_json;
 use std::error::Error;
 use discv5::libp2p_identity::Keypair;
 use crate::handshake::envelope::{make_unsigned, Envelope};
+use crate::handshake::types::UnmarshalError::ValidationError;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct NodeMetadata {
@@ -29,6 +30,18 @@ struct Serializable {
     entries: Vec<String>,
 }
 
+#[derive(Debug)]
+pub enum UnmarshalError {
+    SerializationError(String),
+    ValidationError(String),
+}
+
+impl From<serde_json::Error> for UnmarshalError {
+    fn from(error: serde_json::Error) -> Self {
+        UnmarshalError::SerializationError(error.to_string())
+    }
+}
+
 impl NodeInfo {
     pub fn new(network_id: String, metadata: Option<NodeMetadata>) -> Self {
         NodeInfo {
@@ -42,7 +55,7 @@ impl NodeInfo {
     pub(crate) const CODEC: &'static [u8] = b"ssv/nodeinfo";
 
     /// Serialize `NodeInfo` to JSON bytes.
-    fn marshal_record(&self) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn marshal(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         let mut entries = vec![
             "".to_string(),             // formerly forkVersion, now deprecated
             self.network_id.clone(),    // network id
@@ -60,10 +73,10 @@ impl NodeInfo {
     }
 
     /// Deserialize `NodeInfo` from JSON bytes, replacing `self`.
-    pub fn unmarshal_record(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
+    pub fn unmarshal(&mut self, data: &[u8]) -> Result<(), UnmarshalError> {
         let ser: Serializable = serde_json::from_slice(data)?;
         if ser.entries.len() < 2 {
-            return Err("node info must have at least 2 entries".into());
+            return Err(ValidationError("node info must have at least 2 entries".into()));
         }
         // skip ser.entries[0]: old forkVersion
         self.network_id = ser.entries[1].clone();
@@ -90,7 +103,7 @@ impl NodeInfo {
         }
 
         // 1) marshal
-        let raw_payload = self.marshal_record()?;
+        let raw_payload = self.marshal()?;
 
         // 2) build the "unsigned" data
         let unsigned = make_unsigned(domain.as_bytes(), payload_type, &raw_payload);
@@ -135,7 +148,7 @@ mod tests {
 
         let parsed_env = parse_envelope(&data).expect("Consume failed");
         let mut parsed_node_info = NodeInfo::default();
-        parsed_node_info.unmarshal_record(&parsed_env.payload).expect("TODO: panic message");
+        parsed_node_info.unmarshal(&parsed_env.payload).expect("TODO: panic message");
 
         assert_eq!(node_info, parsed_node_info);
     }
@@ -158,16 +171,16 @@ mod tests {
         };
 
         // 1) Marshal current_data
-        let data = current_data.marshal_record()
+        let data = current_data.marshal()
             .expect("marshal_record should succeed");
 
         // 2) Unmarshal into parsed_rec
         let mut parsed_rec = NodeInfo::default();
-        parsed_rec.unmarshal_record(&data)
+        parsed_rec.unmarshal(&data)
             .expect("unmarshal_record should succeed");
 
         // 3) Now unmarshal the old format data into the same struct
-        parsed_rec.unmarshal_record(old_serialized_data)
+        parsed_rec.unmarshal(old_serialized_data)
             .expect("unmarshal old data should succeed");
 
         // 4) Compare

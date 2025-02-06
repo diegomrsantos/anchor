@@ -1,25 +1,22 @@
-use thiserror::Error;
+use libp2p::request_response::{InboundFailure, OutboundFailure};
+use crate::handshake::types::UnmarshalError;
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum HandshakeError {
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    #[error("Invalid signature")]
     InvalidSignature,
 
-    #[error("Network ID mismatch")]
-    NetworkMismatch,
+    NetworkMismatch { ours: String, theirs: String },
 
-    #[error("Subnets format error")]
     SubnetsFormat,
 
-    #[error("Peer rejected")]
     PeerRejected,
 
-    #[error("Crypto error: {0}")]
     Crypto(String),
 
     InvalidMessageFormat,
     ResponseFailed,
+
+    UnmarshalError(UnmarshalError),
+    Inbound(InboundFailure),
+    Outbound(OutboundFailure),
 }

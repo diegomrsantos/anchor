@@ -17,13 +17,14 @@ use std::time::Instant;
 use tracing::debug;
 use crate::handshake::codec::EnvelopeCodec;
 use crate::handshake::envelope::Envelope;
+use crate::handshake::error::HandshakeError;
 use crate::handshake::types::NodeInfo;
 
 /// Event emitted on handshake completion or failure.
 #[derive(Debug)]
 pub enum HandshakeEvent {
-    Completed { peer: PeerId, their_info: NodeInfo },
-    Failed { peer: PeerId, error: String },
+    Completed { peer_id: PeerId, their_info: NodeInfo },
+    Failed { peer_id: PeerId, error: HandshakeError },
 }
 
 /// Network behaviour handling the handshake protocol.
@@ -72,57 +73,47 @@ impl HandshakeBehaviour
         &mut self,
         node_info: &NodeInfo,
         peer: PeerId,
-    ) -> Result<(), Box<dyn Error>> {
-
-        if node_info.network_id != self.local_node_info.lock().unwrap().network_id {
-            return Err("network id mismatch".into())
+    ) -> Result<(), HandshakeError> {
+        let theirs = self.local_node_info.lock().unwrap().network_id.clone();
+        if node_info.network_id != *theirs {
+            return Err(HandshakeError::NetworkMismatch { ours: node_info.network_id.clone(), theirs })
         }
-
         Ok(())
     }
 
-    fn handle_handshake_request(&mut self, peer: PeerId, channel: ResponseChannel<Envelope>) {
+    fn handle_handshake_request(&mut self, peer_id: PeerId, request: Envelope, channel: ResponseChannel<Envelope>) {
         // Handle incoming request: send response then verify
         let response = self.sealed_node_record();
         match self.behaviour.send_response(channel, response.clone()) {
-            Ok(_) => {}
-            Err(e) => {
-                self.events.push(HandshakeEvent::Failed {
-                    peer,
-                    error: "error".to_string(),
-                });
+            Ok(_) => {
+                self.unmarshall_and_verify(peer_id, &response);
             }
-        }
-        let mut their_info = NodeInfo::default();
-        their_info.unmarshal_record(&response.payload);
-        match self.verify_node_info(&their_info, peer) {
-            Ok(_) => self.events.push(HandshakeEvent::Completed { peer, their_info }),
-            Err(e) => self.events.push(HandshakeEvent::Failed {
-                peer,
-                error: "error".to_string(),
-            }),
+            Err(e) => {
+                // There was an error sending the response. The InboundFailure handler will be called
+            }
         }
     }
 
-    fn handle_handshake_response(&mut self, request_id: &OutboundRequestId, response: &Envelope) {
-        // Handle outgoing response
-        if let Some(peer) = self.pending_handshakes.remove(&request_id) {
-            let mut their_info = NodeInfo::default();
-            their_info.unmarshal_record(&response.payload);
+    fn handle_handshake_response(&mut self, peer_id: PeerId, request_id: &OutboundRequestId, response: &Envelope) {
+        self.unmarshall_and_verify(peer_id, &response);
+    }
 
-            match self.verify_node_info(&their_info, peer) {
-                Ok(_) => {
-                    debug!(?their_info, "Handshake completed");
-                    self.events.push(HandshakeEvent::Completed { peer, their_info })
-                }
-                Err(e) => {
-                    self.events.push(HandshakeEvent::Failed {
-                        peer,
-                        error: "error".to_string(),
-                    });
-                    debug!(?e, "Handshake failed");
-                },
-            }
+    fn unmarshall_and_verify(&mut self, peer_id: PeerId, response: &Envelope) {
+        let mut their_info = NodeInfo::default();
+
+        if let Err(e) = their_info.unmarshal(&response.payload) {
+            self.events.push(HandshakeEvent::Failed {
+                peer_id,
+                error: HandshakeError::UnmarshalError(e),
+            });
+        }
+
+        match self.verify_node_info(&their_info, peer_id) {
+            Ok(_) => self.events.push(HandshakeEvent::Completed { peer_id, their_info }),
+            Err(e) => self.events.push(HandshakeEvent::Failed {
+                peer_id,
+                error: e,
+            }),
         }
     }
 }
@@ -203,19 +194,19 @@ impl NetworkBehaviour for HandshakeBehaviour
                             },
                     } => {
                         debug!("Received handshake request");
-                        self.handle_handshake_request(peer, channel);
+                        self.handle_handshake_request(peer, request, channel);
                     }
                     Event::Message {
+                        peer,
                         message:
                             request_response::Message::Response {
                                 request_id,
                                 response,
                                 ..
                             },
-                        ..
                     } => {
                         debug!(?response, "Received handshake response");
-                        self.handle_handshake_response(&request_id, &response);
+                        self.handle_handshake_response(peer, &request_id, &response);
                     }
                     Event::OutboundFailure {
                         request_id,
@@ -225,16 +216,15 @@ impl NetworkBehaviour for HandshakeBehaviour
                     } => {
                         if let Some(peer) = self.pending_handshakes.remove(&request_id) {
                             self.events.push(HandshakeEvent::Failed {
-                                peer,
-                                error: format!("Outbound failure: {error}"),
+                                peer_id: peer,
+                                error: HandshakeError::Outbound(error),
                             });
-                            debug!(?error, "Outbound failure");
                         }
                     }
                     Event::InboundFailure { peer, error, .. } => {
                         self.events.push(HandshakeEvent::Failed {
-                            peer,
-                            error: format!("Inbound failure: {error}"),
+                            peer_id: peer,
+                            error: HandshakeError::Inbound(error),
                         });
                     }
                     _ => {}
