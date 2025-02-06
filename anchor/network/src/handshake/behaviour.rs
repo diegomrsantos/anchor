@@ -31,8 +31,6 @@ pub enum HandshakeEvent {
 pub struct HandshakeBehaviour {
     /// Request-response behaviour for the handshake protocol.
     behaviour: Behaviour<EnvelopeCodec>,
-    /// Pending outgoing handshake requests.
-    pending_handshakes: HashMap<OutboundRequestId, PeerId>,
     /// Keypair for signing envelopes.
     keypair: Keypair,
     /// Local node's information.
@@ -55,7 +53,6 @@ impl HandshakeBehaviour
 
         Self {
             behaviour: behaviour,
-            pending_handshakes: HashMap::new(),
             keypair,
             local_node_info,
             events: Vec::new(),
@@ -160,8 +157,7 @@ impl NetworkBehaviour for HandshakeBehaviour
         if let FromSwarm::ConnectionEstablished(conn_est) = &event {
             let peer = conn_est.peer_id;
             let request = self.sealed_node_record();
-            let request_id = self.behaviour.send_request(&peer, request);
-            self.pending_handshakes.insert(request_id, peer);
+            self.behaviour.send_request(&peer, request);
         }
 
         // Delegate other events to inner behaviour
@@ -214,12 +210,10 @@ impl NetworkBehaviour for HandshakeBehaviour
                         error,
                         ..
                     } => {
-                        if let Some(peer) = self.pending_handshakes.remove(&request_id) {
-                            self.events.push(HandshakeEvent::Failed {
-                                peer_id: peer,
-                                error: HandshakeError::Outbound(error),
-                            });
-                        }
+                        self.events.push(HandshakeEvent::Failed {
+                            peer_id: peer,
+                            error: HandshakeError::Outbound(error),
+                        });
                     }
                     Event::InboundFailure { peer, error, .. } => {
                         self.events.push(HandshakeEvent::Failed {
