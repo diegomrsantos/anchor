@@ -223,6 +223,17 @@ impl NetworkBehaviour for HandshakeBehaviour
                     }
                     _ => {}
                 },
+                ToSwarm::NotifyHandler {
+                    peer_id,
+                    handler,
+                    event,
+                } => {
+                    return Poll::Ready(ToSwarm::NotifyHandler {
+                        peer_id,
+                        handler,
+                        event,
+                    });
+                }
                 _ => {}
             }
         }
