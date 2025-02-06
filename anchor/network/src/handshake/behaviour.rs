@@ -52,7 +52,7 @@ impl HandshakeBehaviour
         let behaviour = Behaviour::new([(protocol, ProtocolSupport::Full)], Config::default());
 
         Self {
-            behaviour: behaviour,
+            behaviour,
             keypair,
             local_node_info,
             events: Vec::new(),
@@ -71,9 +71,9 @@ impl HandshakeBehaviour
         node_info: &NodeInfo,
         peer: PeerId,
     ) -> Result<(), HandshakeError> {
-        let theirs = self.local_node_info.lock().unwrap().network_id.clone();
-        if node_info.network_id != *theirs {
-            return Err(HandshakeError::NetworkMismatch { ours: node_info.network_id.clone(), theirs })
+        let ours = self.local_node_info.lock().unwrap().network_id.clone();
+        if node_info.network_id != *ours {
+            return Err(HandshakeError::NetworkMismatch { ours, theirs: node_info.network_id.clone()})
         }
         Ok(())
     }
