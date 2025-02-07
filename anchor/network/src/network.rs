@@ -23,7 +23,7 @@ use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
 
-use crate::handshake::behaviour::{HandshakeBehaviour, HandshakeEvent};
+use crate::handshake::behaviour::{HandshakeBehaviour, HandshakeEvent, NodeInfoProvider};
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
@@ -297,7 +297,7 @@ async fn build_anchor_behaviour(
     );
     let handshake = HandshakeBehaviour::new(
         local_keypair.clone(),
-        Arc::new(Mutex::new(node_info)),
+        Box::new(DefaultNodeInfoProvider::new(node_info)),
     );
 
     AnchorBehaviour {
@@ -360,6 +360,26 @@ fn build_swarm(
         .expect("infalible")
         .with_swarm_config(|_| swarm_config)
         .build()
+}
+
+
+pub struct DefaultNodeInfoProvider {
+    node_info: Arc<Mutex<NodeInfo>>,
+}
+
+impl DefaultNodeInfoProvider {
+    pub fn new(node_info: NodeInfo) -> Self {
+        Self {
+            node_info: Arc::new(Mutex::new(node_info)),
+        }
+    }
+}
+
+impl NodeInfoProvider for DefaultNodeInfoProvider {
+    fn get_node_info(&self) -> NodeInfo {
+        // In a real implementation, consider handling lock poisoning.
+        self.node_info.lock().unwrap().clone()
+    }
 }
 
 #[cfg(test)]

@@ -20,6 +20,11 @@ use crate::handshake::envelope::Envelope;
 use crate::handshake::error::HandshakeError;
 use crate::handshake::types::NodeInfo;
 
+pub trait NodeInfoProvider: Send + Sync {
+    /// Returns a clone of the current node information.
+    fn get_node_info(&self) -> NodeInfo;
+}
+
 /// Event emitted on handshake completion or failure.
 #[derive(Debug)]
 pub enum HandshakeEvent {
@@ -33,8 +38,8 @@ pub struct HandshakeBehaviour {
     behaviour: Behaviour<EnvelopeCodec>,
     /// Keypair for signing envelopes.
     keypair: Keypair,
-    /// Local node's information.
-    local_node_info: Arc<Mutex<NodeInfo>>,
+    /// Local node's information provider.
+    node_info_provider: Box<dyn NodeInfoProvider>,
     /// Events to emit.
     events: Vec<HandshakeEvent>,
 }
@@ -43,7 +48,7 @@ impl HandshakeBehaviour
 {
     pub fn new(
         keypair: Keypair,
-        local_node_info: Arc<Mutex<NodeInfo>>,
+        local_node_info: Box<dyn NodeInfoProvider>,
     ) -> Self {
         // NodeInfoProtocol is the protocol.ID used for handshake
         const NODE_INFO_PROTOCOL: &'static str = "/ssv/info/0.0.1";
@@ -54,14 +59,14 @@ impl HandshakeBehaviour
         Self {
             behaviour,
             keypair,
-            local_node_info,
+            node_info_provider: local_node_info,
             events: Vec::new(),
         }
     }
 
     /// Create a signed envelope containing local node info.
     fn sealed_node_record(&self) -> Envelope {
-        let node_info = self.local_node_info.lock().unwrap().clone();
+        let node_info = self.node_info_provider.get_node_info();
         node_info.seal(&self.keypair).unwrap()
     }
 
@@ -71,7 +76,7 @@ impl HandshakeBehaviour
         node_info: &NodeInfo,
         peer: PeerId,
     ) -> Result<(), HandshakeError> {
-        let ours = self.local_node_info.lock().unwrap().network_id.clone();
+        let ours = self.node_info_provider.get_node_info().network_id;
         if node_info.network_id != *ours {
             return Err(HandshakeError::NetworkMismatch { ours, theirs: node_info.network_id.clone()})
         }
