@@ -23,7 +23,7 @@ use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
 
-use crate::handshake::behaviour::{Behaviour, Event, NodeInfoProvider};
+use crate::handshake::{Behaviour, Event, NodeInfoProvider};
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
