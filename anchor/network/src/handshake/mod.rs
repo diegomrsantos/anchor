@@ -1,12 +1,14 @@
 pub mod node_info;
 mod envelope;
-mod error;
 
+use crate::handshake::envelope::Codec;
+use crate::handshake::envelope::Envelope;
+use crate::handshake::node_info::NodeInfo;
 use discv5::libp2p_identity::Keypair;
 use discv5::multiaddr::Multiaddr;
 use libp2p::core::transport::PortUse;
 use libp2p::core::Endpoint;
-use libp2p::request_response::{self, Behaviour as RequestResponseBehaviour, Config, Event as RequestResponseEvent, OutboundRequestId, ProtocolSupport, ResponseChannel};
+use libp2p::request_response::{self, Behaviour as RequestResponseBehaviour, Config, Event as RequestResponseEvent, InboundFailure, OutboundFailure, OutboundRequestId, ProtocolSupport, ResponseChannel};
 use libp2p::swarm::{
     ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
     THandlerOutEvent, ToSwarm,
@@ -14,15 +16,18 @@ use libp2p::swarm::{
 use libp2p::{PeerId, StreamProtocol};
 use prost::Message;
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Instant;
 use tracing::debug;
-use crate::handshake::envelope::{Envelope};
-use crate::handshake::envelope::Codec;
-use crate::handshake::error::HandshakeError;
-use crate::handshake::node_info::NodeInfo;
+
+#[derive(Debug)]
+pub enum Error {
+    NetworkMismatch { ours: String, theirs: String },
+    UnmarshalError(crate::handshake::node_info::Error),
+    Inbound(InboundFailure),
+    Outbound(OutboundFailure),
+}
 
 pub trait NodeInfoProvider: Send + Sync {
     /// Returns a clone of the current node information.
@@ -33,7 +38,7 @@ pub trait NodeInfoProvider: Send + Sync {
 #[derive(Debug)]
 pub enum Event {
     Completed { peer_id: PeerId, their_info: NodeInfo },
-    Failed { peer_id: PeerId, error: HandshakeError },
+    Failed { peer_id: PeerId, error: Error },
 }
 
 /// Network behaviour handling the handshake protocol.
@@ -79,10 +84,10 @@ impl Behaviour
         &mut self,
         node_info: &NodeInfo,
         peer: PeerId,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<(), Error> {
         let ours = self.node_info_provider.get_node_info().network_id;
         if node_info.network_id != *ours {
-            return Err(HandshakeError::NetworkMismatch { ours, theirs: node_info.network_id.clone()})
+            return Err(Error::NetworkMismatch { ours, theirs: node_info.network_id.clone()})
         }
         Ok(())
     }
@@ -110,7 +115,7 @@ impl Behaviour
         if let Err(e) = their_info.unmarshal(&response.payload) {
             self.events.push(Event::Failed {
                 peer_id,
-                error: HandshakeError::UnmarshalError(e),
+                error: Error::UnmarshalError(e),
             });
         }
 
@@ -221,13 +226,13 @@ impl NetworkBehaviour for Behaviour
                     } => {
                         self.events.push(Event::Failed {
                             peer_id: peer,
-                            error: HandshakeError::Outbound(error),
+                            error: Error::Outbound(error),
                         });
                     }
                     RequestResponseEvent::InboundFailure { peer, error, .. } => {
                         self.events.push(Event::Failed {
                             peer_id: peer,
-                            error: HandshakeError::Inbound(error),
+                            error: Error::Inbound(error),
                         });
                     }
                     _ => {}
