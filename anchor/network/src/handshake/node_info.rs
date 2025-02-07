@@ -98,13 +98,7 @@ impl NodeInfo {
     ///  4) storing into `Envelope`.
     pub fn seal(&self,  keypair: &Keypair) -> Result<Envelope, Error> {
         let domain = Self::DOMAIN;
-        if domain.is_empty() {
-            return Err(Validation("domain must not be empty".into()));
-        }
         let payload_type = Self::CODEC;
-        if payload_type.is_empty() {
-            return Err(Validation("payload_type must not be empty".into()));
-        }
 
         // 1) marshal
         let raw_payload = self.marshal()?;

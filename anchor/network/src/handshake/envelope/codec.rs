@@ -5,13 +5,8 @@ use libp2p::request_response::Codec as RequestResponseCodec;
 use std::io;
 use async_trait::async_trait;
 use libp2p::StreamProtocol;
-use prost::bytes::BytesMut;
-use prost::encoding::{decode_varint, encode_varint, encoded_len_varint};
-use prost::Message;
 use tracing::debug;
 use crate::handshake::envelope;
-use crate::handshake::node_info::NodeInfo;
-
 
 impl From<envelope::Error> for io::Error {
     fn from(err: envelope::Error) -> io::Error {

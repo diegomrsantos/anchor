@@ -8,23 +8,19 @@ use discv5::libp2p_identity::Keypair;
 use discv5::multiaddr::Multiaddr;
 use libp2p::core::transport::PortUse;
 use libp2p::core::Endpoint;
-use libp2p::request_response::{self, Behaviour as RequestResponseBehaviour, Config, Event as RequestResponseEvent, InboundFailure, OutboundFailure, OutboundRequestId, ProtocolSupport, ResponseChannel};
+use libp2p::request_response::{self, Behaviour as RequestResponseBehaviour, Config, Event as RequestResponseEvent, InboundFailure, OutboundFailure, ProtocolSupport, ResponseChannel};
 use libp2p::swarm::{
     ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
     THandlerOutEvent, ToSwarm,
 };
 use libp2p::{PeerId, StreamProtocol};
-use prost::Message;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::Instant;
 use tracing::debug;
 
 #[derive(Debug)]
 pub enum Error {
     NetworkMismatch { ours: String, theirs: String },
-    UnmarshalError(crate::handshake::node_info::Error),
+    NodeInfo(crate::handshake::node_info::Error),
     Inbound(InboundFailure),
     Outbound(OutboundFailure),
 }
@@ -60,7 +56,7 @@ impl Behaviour
         local_node_info: Box<dyn NodeInfoProvider>,
     ) -> Self {
         // NodeInfoProtocol is the protocol.ID used for handshake
-        const NODE_INFO_PROTOCOL: &'static str = "/ssv/info/0.0.1";
+        const NODE_INFO_PROTOCOL: &str = "/ssv/info/0.0.1";
 
         let protocol = StreamProtocol::new(NODE_INFO_PROTOCOL);
         let behaviour = RequestResponseBehaviour::new([(protocol, ProtocolSupport::Full)], Config::default());
@@ -83,7 +79,6 @@ impl Behaviour
     fn verify_node_info(
         &mut self,
         node_info: &NodeInfo,
-        peer: PeerId,
     ) -> Result<(), Error> {
         let ours = self.node_info_provider.get_node_info().network_id;
         if node_info.network_id != *ours {
@@ -99,14 +94,14 @@ impl Behaviour
             Ok(_) => {
                 self.unmarshall_and_verify(peer_id, &response);
             }
-            Err(e) => {
+            Err(_) => {
                 // There was an error sending the response. The InboundFailure handler will be called
             }
         }
     }
 
-    fn handle_handshake_response(&mut self, peer_id: PeerId, request_id: &OutboundRequestId, response: &Envelope) {
-        self.unmarshall_and_verify(peer_id, &response);
+    fn handle_handshake_response(&mut self, peer_id: PeerId, response: &Envelope) {
+        self.unmarshall_and_verify(peer_id, response);
     }
 
     fn unmarshall_and_verify(&mut self, peer_id: PeerId, response: &Envelope) {
@@ -115,11 +110,11 @@ impl Behaviour
         if let Err(e) = their_info.unmarshal(&response.payload) {
             self.events.push(Event::Failed {
                 peer_id,
-                error: Error::UnmarshalError(e),
+                error: Error::NodeInfo(e),
             });
         }
 
-        match self.verify_node_info(&their_info, peer_id) {
+        match self.verify_node_info(&their_info) {
             Ok(_) => self.events.push(Event::Completed { peer_id, their_info }),
             Err(e) => self.events.push(Event::Failed {
                 peer_id,
@@ -210,16 +205,14 @@ impl NetworkBehaviour for Behaviour
                         peer,
                         message:
                         request_response::Message::Response {
-                            request_id,
                             response,
                             ..
                         },
                     } => {
                         debug!(?response, "Received handshake response");
-                        self.handle_handshake_response(peer, &request_id, &response);
+                        self.handle_handshake_response(peer, &response);
                     }
                     RequestResponseEvent::OutboundFailure {
-                        request_id,
                         peer,
                         error,
                         ..

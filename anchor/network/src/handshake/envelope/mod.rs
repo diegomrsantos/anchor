@@ -5,7 +5,6 @@ use discv5::libp2p_identity::PublicKey;
 use libp2p::identity::DecodingError;
 use prost::{DecodeError, EncodeError, Message};
 
-use std::error::Error as StdError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -71,7 +70,7 @@ pub fn parse_envelope(
 
     let unsigned = make_unsigned(domain.as_bytes(), payload_type, &env.payload);
 
-    let pk = PublicKey::try_decode_protobuf(&*env.public_key.to_vec())?;
+    let pk = PublicKey::try_decode_protobuf(&env.public_key.to_vec())?;
 
     if !pk.verify(&unsigned, &env.signature) {
         return Err(SignatureVerification("signature verification failed".into()));
