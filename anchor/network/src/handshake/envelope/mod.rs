@@ -1,7 +1,8 @@
+mod codec;
+
 use std::error::Error;
 use discv5::libp2p_identity::PublicKey;
 use prost::Message;
-use strum::Display;
 use crate::handshake::types::NodeInfo;
 
 /// The Envelope structure exactly matching Go's Envelope fields and tags:
@@ -75,3 +76,5 @@ pub fn make_unsigned(domain: &[u8], payload_type: &[u8], payload: &[u8]) -> Vec<
 
     out
 }
+
+pub use codec::Codec;

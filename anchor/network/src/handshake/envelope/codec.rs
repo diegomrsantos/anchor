@@ -1,7 +1,7 @@
 use crate::handshake::envelope::{parse_envelope, Envelope};
 use futures::{AsyncReadExt, AsyncWriteExt};
 use libp2p::futures::{AsyncRead, AsyncWrite};
-use libp2p::request_response::Codec;
+use libp2p::request_response::Codec as RequestResponseCodec;
 use std::io;
 use async_trait::async_trait;
 use libp2p::StreamProtocol;
@@ -13,10 +13,10 @@ use crate::handshake::types::NodeInfo;
 
 /// A `Codec` that reads/writes an **`Envelope`**
 #[derive(Clone, Debug, Default)]
-pub struct EnvelopeCodec;
+pub struct Codec;
 
 #[async_trait]
-impl Codec for EnvelopeCodec {
+impl RequestResponseCodec for Codec {
     type Protocol = StreamProtocol;
     type Request = Envelope;
     type Response = Envelope;
@@ -55,7 +55,7 @@ impl Codec for EnvelopeCodec {
         let env = parse_envelope(&msg_buf).unwrap();
 
         debug!(?env, "decoded handshake response");
-         Ok(env)
+        Ok(env)
     }
 
     async fn write_request<T>(

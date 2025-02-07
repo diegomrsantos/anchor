@@ -1,6 +1,5 @@
-mod codec;
 pub mod types;
-pub mod envelope;
+mod envelope;
 mod error;
 
 use discv5::libp2p_identity::Keypair;
@@ -20,8 +19,8 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Instant;
 use tracing::debug;
-use crate::handshake::codec::EnvelopeCodec;
-use crate::handshake::envelope::Envelope;
+use crate::handshake::envelope::{Envelope};
+use crate::handshake::envelope::Codec;
 use crate::handshake::error::HandshakeError;
 use crate::handshake::types::NodeInfo;
 
@@ -40,7 +39,7 @@ pub enum Event {
 /// Network behaviour handling the handshake protocol.
 pub struct Behaviour {
     /// Request-response behaviour for the handshake protocol.
-    behaviour: RequestResponseBehaviour<EnvelopeCodec>,
+    behaviour: RequestResponseBehaviour<Codec>,
     /// Keypair for signing envelopes.
     keypair: Keypair,
     /// Local node's information provider.
@@ -127,7 +126,7 @@ impl Behaviour
 
 impl NetworkBehaviour for Behaviour
 {
-    type ConnectionHandler = <RequestResponseBehaviour<EnvelopeCodec> as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler = <RequestResponseBehaviour<Codec> as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
