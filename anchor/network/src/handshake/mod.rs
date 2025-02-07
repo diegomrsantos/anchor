@@ -90,14 +90,9 @@ impl Behaviour
     fn handle_handshake_request(&mut self, peer_id: PeerId, request: Envelope, channel: ResponseChannel<Envelope>) {
         // Handle incoming request: send response then verify
         let response = self.sealed_node_record();
-        match self.behaviour.send_response(channel, response.clone()) {
-            Ok(_) => {
-                self.unmarshall_and_verify(peer_id, &response);
-            }
-            Err(_) => {
-                // There was an error sending the response. The InboundFailure handler will be called
-            }
-        }
+        let _ = self.behaviour.send_response(channel, response.clone()); // Any error here is handled by the InboundFailure handler
+
+        self.unmarshall_and_verify(peer_id, &request);
     }
 
     fn handle_handshake_response(&mut self, peer_id: PeerId, response: &Envelope) {
