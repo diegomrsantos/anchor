@@ -1,9 +1,61 @@
 mod codec;
 
-use std::error::Error;
 use discv5::libp2p_identity::PublicKey;
-use prost::Message;
-use crate::handshake::types::NodeInfo;
+use libp2p::identity::DecodingError;
+use prost::{DecodeError, EncodeError, Message};
+use crate::handshake::types::{NodeInfo, UnmarshalError};
+
+use std::error::Error as StdError;
+use std::fmt;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Decode(e) => write!(f, "Decode error: {}", e),
+            Error::Encode(e) => write!(f, "Encode error: {}", e),
+            Error::PublicKeyDecoding(msg) => write!(f, "Public Key decoding error: {}", msg),
+            Error::SignatureVerification(msg) => write!(f, "Signature verification error: {}", msg),
+        }
+    }
+}
+
+impl StdError for Error {
+    // Optionally, override `source` if any variant wraps an underlying error.
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            Error::Decode(e) => Some(e),
+            Error::Encode(e) => Some(e),
+            Error::PublicKeyDecoding(_) => None,
+            Error::SignatureVerification(_) => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Decode(DecodeError),
+    Encode(EncodeError),
+    PublicKeyDecoding(DecodingError),
+    SignatureVerification(String),
+}
+
+impl From<DecodeError> for Error {
+    fn from(error: DecodeError) -> Self {
+        Error::Decode(error)
+    }
+}
+
+impl From<EncodeError> for Error {
+    fn from(error: EncodeError) -> Self {
+        Error::Encode(error)
+    }
+}
+
+impl From<DecodingError> for Error {
+    fn from(error: DecodingError) -> Self {
+        Error::PublicKeyDecoding(error)
+    }
+}
 
 /// The Envelope structure exactly matching Go's Envelope fields and tags:
 ///   1 => public_key
@@ -27,24 +79,25 @@ pub struct Envelope {
     pub signature: Vec<u8>,
 }
 
+
 impl Envelope {
     /// Encode the Envelope to a Protobuf byte array (like `proto.Marshal` in Go).
-    pub fn encode_to_vec(&self) -> Result<Vec<u8>, prost::EncodeError> {
+    pub fn encode_to_vec(&self) -> Result<Vec<u8>, Error> {
         let mut buf = Vec::with_capacity(self.encoded_len());
         self.encode(&mut buf)?;
         Ok(buf)
     }
 
     /// Decode an Envelope from a Protobuf byte array (like `proto.Unmarshal` in Go).
-    pub fn decode_from_slice(data: &[u8]) -> Result<Self, prost::DecodeError> {
-        Envelope::decode(data)
+    pub fn decode_from_slice(data: &[u8]) -> Result<Self, Error> {
+        Envelope::decode(data).map_err(Error::from)
     }
 }
 
 /// Consumes an Envelope => verify signature => parse the record.
 pub fn parse_envelope(
     bytes: &[u8],
-) -> Result<(Envelope), Box<dyn Error>> {
+) -> Result<Envelope, Error> {
     let env = Envelope::decode_from_slice(bytes)?;
 
     let domain = NodeInfo::DOMAIN;
@@ -52,10 +105,10 @@ pub fn parse_envelope(
 
     let unsigned = make_unsigned(domain.as_bytes(), payload_type, &env.payload);
 
-    let pk = PublicKey::try_decode_protobuf(&*env.public_key.to_vec()).unwrap();
+    let pk = PublicKey::try_decode_protobuf(&*env.public_key.to_vec())?;
 
     if !pk.verify(&unsigned, &env.signature) {
-        return Err("signature verification failed".into());
+        return Err(SignatureVerification("signature verification failed".into()));
     }
 
     Ok(env)
@@ -78,3 +131,4 @@ pub fn make_unsigned(domain: &[u8], payload_type: &[u8], payload: &[u8]) -> Vec<
 }
 
 pub use codec::Codec;
+use crate::handshake::envelope::Error::SignatureVerification;
