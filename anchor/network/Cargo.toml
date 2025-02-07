@@ -24,7 +24,6 @@ libp2p = { version = "0.54", default-features = false, features = [
   "ping",
   "request-response",
 ] }
-#libp2p-request-response = "0.26.3"
 lighthouse_network = { workspace = true }
 serde = { workspace = true }
 ssz_types = "0.10"
@@ -39,10 +38,6 @@ thiserror = "1.0.69"
 prost = "0.13.4"
 async-trait = "0.1.85"
 rand = "0.8.5"
-
-# Add to parse or generate .proto
-[build-dependencies]
-prost-build = "0.13.4"
 
 [dev-dependencies]
 async-channel = { workspace = true }
