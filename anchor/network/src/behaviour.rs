@@ -1,6 +1,5 @@
 use crate::discovery::Discovery;
-use libp2p::request_response::Behaviour;
-use crate::handshake::behaviour::Behaviour;
+use crate::handshake::Behaviour;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{gossipsub, identify, ping};
 
