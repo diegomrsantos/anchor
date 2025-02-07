@@ -1,4 +1,4 @@
-pub mod types;
+pub mod node_info;
 mod envelope;
 mod error;
 
@@ -22,7 +22,7 @@ use tracing::debug;
 use crate::handshake::envelope::{Envelope};
 use crate::handshake::envelope::Codec;
 use crate::handshake::error::HandshakeError;
-use crate::handshake::types::NodeInfo;
+use crate::handshake::node_info::NodeInfo;
 
 pub trait NodeInfoProvider: Send + Sync {
     /// Returns a clone of the current node information.

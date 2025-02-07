@@ -27,7 +27,7 @@ use crate::handshake::{Behaviour, Event, NodeInfoProvider};
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
-use crate::handshake::types::{NodeInfo, NodeMetadata};
+use crate::handshake::node_info::{NodeInfo, NodeMetadata};
 use subnet_tracker::{SubnetEvent, SubnetId};
 use tokio::sync::mpsc;
 

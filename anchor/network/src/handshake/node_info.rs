@@ -1,9 +1,25 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::error::Error;
-use discv5::libp2p_identity::Keypair;
+use discv5::libp2p_identity::{Keypair, SigningError};
 use crate::handshake::envelope::{make_unsigned, Envelope};
-use crate::handshake::types::UnmarshalError::ValidationError;
+
+use thiserror::Error;
+use crate::handshake::node_info::Error::Validation;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("UTF-8 conversion error: {0}")]
+    Utf8(#[from] std::string::FromUtf8Error),
+
+    #[error("Seal error: {0}")]
+    Seal(#[from] SigningError),
+
+    #[error("Validation error: {0}")]
+    Validation(String),
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct NodeMetadata {
@@ -30,18 +46,6 @@ struct Serializable {
     entries: Vec<String>,
 }
 
-#[derive(Debug)]
-pub enum UnmarshalError {
-    SerializationError(String),
-    ValidationError(String),
-}
-
-impl From<serde_json::Error> for UnmarshalError {
-    fn from(error: serde_json::Error) -> Self {
-        UnmarshalError::SerializationError(error.to_string())
-    }
-}
-
 impl NodeInfo {
     pub fn new(network_id: String, metadata: Option<NodeMetadata>) -> Self {
         NodeInfo {
@@ -55,7 +59,7 @@ impl NodeInfo {
     pub(crate) const CODEC: &'static [u8] = b"ssv/nodeinfo";
 
     /// Serialize `NodeInfo` to JSON bytes.
-    fn marshal(&self) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn marshal(&self) -> Result<Vec<u8>, Error> {
         let mut entries = vec![
             "".to_string(),             // formerly forkVersion, now deprecated
             self.network_id.clone(),    // network id
@@ -73,10 +77,10 @@ impl NodeInfo {
     }
 
     /// Deserialize `NodeInfo` from JSON bytes, replacing `self`.
-    pub fn unmarshal(&mut self, data: &[u8]) -> Result<(), UnmarshalError> {
+    pub fn unmarshal(&mut self, data: &[u8]) -> Result<(), Error> {
         let ser: Serializable = serde_json::from_slice(data)?;
         if ser.entries.len() < 2 {
-            return Err(ValidationError("node info must have at least 2 entries".into()));
+            return Err(Validation("node info must have at least 2 entries".into()));
         }
         // skip ser.entries[0]: old forkVersion
         self.network_id = ser.entries[1].clone();
@@ -92,14 +96,14 @@ impl NodeInfo {
     ///  2) building "unsigned" data (domain + codec + payload),
     ///  3) signing with ed25519,
     ///  4) storing into `Envelope`.
-    pub fn seal(&self,  keypair: &Keypair) -> Result<Envelope, Box<dyn Error>> {
+    pub fn seal(&self,  keypair: &Keypair) -> Result<Envelope, Error> {
         let domain = Self::DOMAIN;
         if domain.is_empty() {
-            return Err("domain must not be empty".into());
+            return Err(Validation("domain must not be empty".into()));
         }
         let payload_type = Self::CODEC;
         if payload_type.is_empty() {
-            return Err("payload_type must not be empty".into());
+            return Err(Validation("payload_type must not be empty".into()));
         }
 
         // 1) marshal
@@ -126,7 +130,7 @@ impl NodeInfo {
 mod tests {
     use libp2p::identity::Keypair;
     use crate::handshake::envelope::parse_envelope;
-    use crate::handshake::types::{NodeInfo, NodeMetadata};
+    use crate::handshake::node_info::{NodeInfo, NodeMetadata};
 
     #[test]
     fn test_node_info_seal_consume() {

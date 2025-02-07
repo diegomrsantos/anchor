@@ -1,6 +1,6 @@
 mod codec;
 
-use crate::handshake::types::NodeInfo;
+use crate::handshake::node_info::NodeInfo;
 use discv5::libp2p_identity::PublicKey;
 use libp2p::identity::DecodingError;
 use prost::{DecodeError, EncodeError, Message};

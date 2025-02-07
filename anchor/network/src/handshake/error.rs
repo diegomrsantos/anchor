@@ -1,22 +1,10 @@
 use libp2p::request_response::{InboundFailure, OutboundFailure};
-use crate::handshake::types::UnmarshalError;
+use crate::handshake::node_info::Error;
 
 #[derive(Debug)]
 pub enum HandshakeError {
-    InvalidSignature,
-
     NetworkMismatch { ours: String, theirs: String },
-
-    SubnetsFormat,
-
-    PeerRejected,
-
-    Crypto(String),
-
-    InvalidMessageFormat,
-    ResponseFailed,
-
-    UnmarshalError(UnmarshalError),
+    UnmarshalError(Error),
     Inbound(InboundFailure),
     Outbound(OutboundFailure),
 }

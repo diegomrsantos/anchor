@@ -10,7 +10,7 @@ use prost::encoding::{decode_varint, encode_varint, encoded_len_varint};
 use prost::Message;
 use tracing::debug;
 use crate::handshake::envelope;
-use crate::handshake::types::NodeInfo;
+use crate::handshake::node_info::NodeInfo;
 
 
 impl From<envelope::Error> for io::Error {
