@@ -23,7 +23,7 @@ use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
 
-use crate::handshake::behaviour::{HandshakeBehaviour, HandshakeEvent, NodeInfoProvider};
+use crate::handshake::behaviour::{Behaviour, Event, NodeInfoProvider};
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
@@ -218,13 +218,13 @@ fn subnet_to_topic(subnet: SubnetId) -> IdentTopic {
     IdentTopic::new(format!("ssv.{}", *subnet))
 }
 
-fn handle_handshake_event(ev: HandshakeEvent) {
+fn handle_handshake_event(ev: Event) {
     match ev {
-        HandshakeEvent::Completed { peer_id, their_info } => {
+        Event::Completed { peer_id, their_info } => {
             debug!(%peer_id, ?their_info, "Handshake completed");
             // Update peer store with their_info
         }
-        HandshakeEvent::Failed { peer_id, error } => {
+        Event::Failed { peer_id, error } => {
             debug!(%peer_id, ?error, "Handshake failed");
         }
     }
@@ -295,7 +295,7 @@ async fn build_anchor_behaviour(
             subnets: "ffffffffffffffffffffffffffffffff".to_string(),
         }),
     );
-    let handshake = HandshakeBehaviour::new(
+    let handshake = Behaviour::new(
         local_keypair.clone(),
         Box::new(DefaultNodeInfoProvider::new(node_info)),
     );

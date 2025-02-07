@@ -2,7 +2,7 @@ use discv5::libp2p_identity::Keypair;
 use discv5::multiaddr::Multiaddr;
 use libp2p::core::transport::PortUse;
 use libp2p::core::Endpoint;
-use libp2p::request_response::{self, Behaviour, Config, Event as RequestResponseEvent, OutboundRequestId, ProtocolSupport, ResponseChannel};
+use libp2p::request_response::{self, Behaviour as RequestResponseBehaviour, Config, Event as RequestResponseEvent, OutboundRequestId, ProtocolSupport, ResponseChannel};
 use libp2p::swarm::{
     ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
     THandlerOutEvent, ToSwarm,
@@ -33,9 +33,9 @@ pub enum Event {
 }
 
 /// Network behaviour handling the handshake protocol.
-pub struct HandshakeBehaviour {
+pub struct Behaviour {
     /// Request-response behaviour for the handshake protocol.
-    behaviour: Behaviour<EnvelopeCodec>,
+    behaviour: RequestResponseBehaviour<EnvelopeCodec>,
     /// Keypair for signing envelopes.
     keypair: Keypair,
     /// Local node's information provider.
@@ -44,7 +44,7 @@ pub struct HandshakeBehaviour {
     events: Vec<Event>,
 }
 
-impl HandshakeBehaviour
+impl Behaviour
 {
     pub fn new(
         keypair: Keypair,
@@ -54,7 +54,7 @@ impl HandshakeBehaviour
         const NODE_INFO_PROTOCOL: &'static str = "/ssv/info/0.0.1";
 
         let protocol = StreamProtocol::new(NODE_INFO_PROTOCOL);
-        let behaviour = Behaviour::new([(protocol, ProtocolSupport::Full)], Config::default());
+        let behaviour = RequestResponseBehaviour::new([(protocol, ProtocolSupport::Full)], Config::default());
 
         Self {
             behaviour,
@@ -120,9 +120,9 @@ impl HandshakeBehaviour
     }
 }
 
-impl NetworkBehaviour for HandshakeBehaviour
+impl NetworkBehaviour for Behaviour
 {
-    type ConnectionHandler = <Behaviour<EnvelopeCodec> as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler = <RequestResponseBehaviour<EnvelopeCodec> as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
