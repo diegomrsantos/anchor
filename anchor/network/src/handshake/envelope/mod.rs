@@ -1,60 +1,26 @@
 mod codec;
 
+use crate::handshake::types::NodeInfo;
 use discv5::libp2p_identity::PublicKey;
 use libp2p::identity::DecodingError;
 use prost::{DecodeError, EncodeError, Message};
-use crate::handshake::types::{NodeInfo, UnmarshalError};
 
 use std::error::Error as StdError;
-use std::fmt;
+use thiserror::Error;
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::Decode(e) => write!(f, "Decode error: {}", e),
-            Error::Encode(e) => write!(f, "Encode error: {}", e),
-            Error::PublicKeyDecoding(msg) => write!(f, "Public Key decoding error: {}", msg),
-            Error::SignatureVerification(msg) => write!(f, "Signature verification error: {}", msg),
-        }
-    }
-}
-
-impl StdError for Error {
-    // Optionally, override `source` if any variant wraps an underlying error.
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        match self {
-            Error::Decode(e) => Some(e),
-            Error::Encode(e) => Some(e),
-            Error::PublicKeyDecoding(_) => None,
-            Error::SignatureVerification(_) => None,
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
-    Decode(DecodeError),
-    Encode(EncodeError),
-    PublicKeyDecoding(DecodingError),
+    #[error("Decode error: {0}")]
+    Decode(#[from] DecodeError), // Automatically implements `From<DecodeError> for Error`
+
+    #[error("Encode error: {0}")]
+    Encode(#[from] EncodeError),
+
+    #[error("Public Key Decoding error: {0}")]
+    PublicKeyDecoding(#[from] DecodingError),
+
+    #[error("Signature Verification error: {0}")]
     SignatureVerification(String),
-}
-
-impl From<DecodeError> for Error {
-    fn from(error: DecodeError) -> Self {
-        Error::Decode(error)
-    }
-}
-
-impl From<EncodeError> for Error {
-    fn from(error: EncodeError) -> Self {
-        Error::Encode(error)
-    }
-}
-
-impl From<DecodingError> for Error {
-    fn from(error: DecodingError) -> Self {
-        Error::PublicKeyDecoding(error)
-    }
 }
 
 /// The Envelope structure exactly matching Go's Envelope fields and tags:
@@ -130,5 +96,5 @@ pub fn make_unsigned(domain: &[u8], payload_type: &[u8], payload: &[u8]) -> Vec<
     out
 }
 
-pub use codec::Codec;
 use crate::handshake::envelope::Error::SignatureVerification;
+pub use codec::Codec;
