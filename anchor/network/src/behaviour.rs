@@ -1,5 +1,5 @@
 use crate::discovery::Discovery;
-use crate::handshake::Behaviour;
+use crate::handshake;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{gossipsub, identify, ping};
 
@@ -14,5 +14,5 @@ pub struct AnchorBehaviour {
     /// Discv5 Discovery protocol.
     pub discovery: Discovery,
 
-    pub handshake: Behaviour,
+    pub handshake: handshake::Behaviour,
 }

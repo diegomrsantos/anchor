@@ -11,9 +11,6 @@ pub enum Error {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
-    #[error("UTF-8 conversion error: {0}")]
-    Utf8(#[from] std::string::FromUtf8Error),
-
     #[error("Seal error: {0}")]
     Seal(#[from] SigningError),
 
@@ -66,8 +63,7 @@ impl NodeInfo {
         ];
 
         if let Some(meta) = &self.metadata {
-            let raw_meta = serde_json::to_vec(meta)?;
-            entries.push(String::from_utf8(raw_meta)?);
+            entries.push(serde_json::to_string(meta)?);
         }
 
         // Serialize as JSON

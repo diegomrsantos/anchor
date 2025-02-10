@@ -23,7 +23,7 @@ use tracing::debug;
 #[derive(Debug)]
 pub enum Error {
     NetworkMismatch { ours: String, theirs: String },
-    NodeInfo(crate::handshake::node_info::Error),
+    NodeInfo(node_info::Error),
     Inbound(InboundFailure),
     Outbound(OutboundFailure),
 }
