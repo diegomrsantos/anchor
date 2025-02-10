@@ -5172,7 +5172,6 @@ dependencies = [
  "libp2p",
  "lighthouse_network",
  "quick-protobuf",
- "rand",
  "serde",
  "serde_json",
  "ssz_types 0.10.0",
@@ -5181,7 +5180,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
- "types",
  "version",
 ]
 
