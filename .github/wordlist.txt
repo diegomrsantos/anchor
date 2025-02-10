@@ -49,7 +49,6 @@ lifecycle
 Syncer
 JSON
 Protobuf
-Responder
 responder
 Prepends
 Secp
