@@ -38,6 +38,7 @@ testnet
 Testnets
 TODOs
 UI
+Validator
 validator
 validators
 Holesky

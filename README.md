@@ -40,4 +40,4 @@ Anchor welcomes contributors.
 
 If you are looking to contribute, please head to the
 [Contributing](https://anchor-book.sigmaprime.io/contributing.html) section
-of the Anchor book.
+of the Anchor book. VAlidators.
