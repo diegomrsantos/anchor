@@ -66,6 +66,8 @@ pub struct Config {
 
     /// Target number of connected peers.
     pub target_peers: usize,
+
+    pub domain_type: String,
 }
 
 impl Default for Config {
@@ -100,6 +102,7 @@ impl Default for Config {
             disable_discovery: false,
             disable_quic_support: false,
             topics: vec![],
+            domain_type: "".to_string(),
         }
     }
 }

@@ -287,9 +287,9 @@ async fn build_anchor_behaviour(
         discovery
     };
 
-    let domain = format!("0x{}", hex::encode(vec![0x0, 0x0, 0x5, 0x2]));
+    print!("Domain: {}", network_config.domain_type);
     let node_info = NodeInfo::new(
-        domain,
+        network_config.domain_type.clone(),
         Some(NodeMetadata {
             node_version: "1.0.0".to_string(),
             execution_node: "geth/v1.10.8".to_string(),

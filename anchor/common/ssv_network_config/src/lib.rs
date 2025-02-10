@@ -22,6 +22,7 @@ macro_rules! get_hardcoded {
             include_str_for_net!($network, "ssv_boot_enr.yaml"),
             include_str_for_net!($network, "ssv_contract_address.txt"),
             include_str_for_net!($network, "ssv_contract_block.txt"),
+            include_str_for_net!($network, "ssv_domain_type.txt"),
         )
     };
 }
@@ -32,11 +33,12 @@ pub struct SsvNetworkConfig {
     pub ssv_boot_nodes: Option<Vec<Enr<CombinedKey>>>,
     pub ssv_contract: Address,
     pub ssv_contract_block: u64,
+    pub ssv_domain_type: String
 }
 
 impl SsvNetworkConfig {
     pub fn constant(name: &str) -> Result<Option<Self>, String> {
-        let (enr_yaml, address, block) = match name {
+        let (enr_yaml, address, block, domain_type) = match name {
             "mainnet" => get_hardcoded!(mainnet),
             "holesky" => get_hardcoded!(holesky),
             _ => return Ok(None),
@@ -55,6 +57,9 @@ impl SsvNetworkConfig {
             ssv_contract_block: block
                 .parse()
                 .map_err(|_| "Unable to parse built-in block!")?,
+            ssv_domain_type: domain_type
+                .parse()
+                .map_err(|_| "Unable to parse built-in domain type!")?,
         }))
     }
 
@@ -76,6 +81,7 @@ impl SsvNetworkConfig {
             ssv_boot_nodes,
             ssv_contract: read(&base_dir.join("ssv_contract_address.txt"))?,
             ssv_contract_block: read(&base_dir.join("ssv_contract_block.txt"))?,
+            ssv_domain_type: read(&base_dir.join("domain_type.txt"))?,
             eth2_network: Eth2NetworkConfig::load(base_dir)?,
         })
     }
