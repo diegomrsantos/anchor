@@ -30,8 +30,8 @@ impl Envelope {
 
     /// Decode an Envelope from a Protobuf byte array (like `proto.Unmarshal` in Go).
     pub fn decode_from_slice(data: &[u8]) -> Result<Self, Error> {
-        let mut reader = BytesReader::from_bytes(&data);
-        let env = Envelope::from_reader(&mut reader, &data).map_err(Error::Coding)?;
+        let mut reader = BytesReader::from_bytes(data);
+        let env = Envelope::from_reader(&mut reader, data).map_err(Error::Coding)?;
         Ok(env)
     }
 }
