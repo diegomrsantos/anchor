@@ -1,7 +1,6 @@
 blockchain
 CLI
 clippy
-Config
 config
 cryptographic
 dir
@@ -35,16 +34,13 @@ SSV
 struct
 structs
 Styleguide
-Testnet
 testnet
 Testnets
 TODOs
 UI
-Validator
 validator
 validators
 Holesky
 Mainnet
 lifecycle
 Syncer
-
