@@ -4,7 +4,7 @@ mod envelope;
 use crate::handshake::node_info::NodeInfo;
 use discv5::libp2p_identity::PublicKey;
 use libp2p::identity::DecodingError;
-use quick_protobuf::{Writer, Error as ProtoError, BytesReader, MessageRead, MessageWrite};
+use quick_protobuf::{BytesReader, Error as ProtoError, MessageRead, MessageWrite, Writer};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -37,9 +37,7 @@ impl Envelope {
 }
 
 /// Consumes an Envelope => verify signature => parse the record.
-pub fn parse_envelope(
-    bytes: &[u8],
-) -> Result<Envelope, Error> {
+pub fn parse_envelope(bytes: &[u8]) -> Result<Envelope, Error> {
     let env = Envelope::decode_from_slice(bytes)?;
 
     let domain = NodeInfo::DOMAIN;
@@ -50,13 +48,19 @@ pub fn parse_envelope(
     let pk = PublicKey::try_decode_protobuf(&env.public_key.to_vec())?;
 
     if !pk.verify(&unsigned?, &env.signature) {
-        return Err(SignatureVerification("signature verification failed".into()));
+        return Err(SignatureVerification(
+            "signature verification failed".into(),
+        ));
     }
 
     Ok(env)
 }
 
-pub fn make_unsigned(domain: &[u8], payload_type: &[u8], payload: &[u8]) -> Result<Vec<u8>, ProtoError> {
+pub fn make_unsigned(
+    domain: &[u8],
+    payload_type: &[u8],
+    payload: &[u8],
+) -> Result<Vec<u8>, ProtoError> {
     let mut buf = Vec::new();
     {
         let mut writer = Writer::new(&mut buf);

@@ -1,10 +1,10 @@
+use crate::handshake::envelope::{make_unsigned, Envelope};
+use discv5::libp2p_identity::{Keypair, SigningError};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use discv5::libp2p_identity::{Keypair, SigningError};
-use crate::handshake::envelope::{make_unsigned, Envelope};
 
-use thiserror::Error;
 use crate::handshake::node_info::Error::Validation;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -61,8 +61,8 @@ impl NodeInfo {
     /// Serialize `NodeInfo` to JSON bytes.
     fn marshal(&self) -> Result<Vec<u8>, Error> {
         let mut entries = vec![
-            "".to_string(),             // formerly forkVersion, now deprecated
-            self.network_id.clone(),    // network id
+            "".to_string(),          // formerly forkVersion, now deprecated
+            self.network_id.clone(), // network id
         ];
 
         if let Some(meta) = &self.metadata {
@@ -96,7 +96,7 @@ impl NodeInfo {
     ///  2) building "unsigned" data (domain + codec + payload),
     ///  3) signing with ed25519,
     ///  4) storing into `Envelope`.
-    pub fn seal(&self,  keypair: &Keypair) -> Result<Envelope, Error> {
+    pub fn seal(&self, keypair: &Keypair) -> Result<Envelope, Error> {
         let domain = Self::DOMAIN;
         let payload_type = Self::CODEC;
 
@@ -122,9 +122,9 @@ impl NodeInfo {
 
 #[cfg(test)]
 mod tests {
-    use libp2p::identity::Keypair;
     use crate::handshake::envelope::parse_envelope;
     use crate::handshake::node_info::{NodeInfo, NodeMetadata};
+    use libp2p::identity::Keypair;
 
     #[test]
     fn test_node_info_seal_consume() {
@@ -140,13 +140,17 @@ mod tests {
         );
 
         // Marshal the NodeInfo into bytes
-        let envelope = node_info.seal(&Keypair::generate_secp256k1()).expect("Seal failed");
+        let envelope = node_info
+            .seal(&Keypair::generate_secp256k1())
+            .expect("Seal failed");
 
         let data = envelope.encode_to_vec().unwrap();
 
         let parsed_env = parse_envelope(&data).expect("Consume failed");
         let mut parsed_node_info = NodeInfo::default();
-        parsed_node_info.unmarshal(&parsed_env.payload).expect("TODO: panic message");
+        parsed_node_info
+            .unmarshal(&parsed_env.payload)
+            .expect("TODO: panic message");
 
         assert_eq!(node_info, parsed_node_info);
 
@@ -157,7 +161,9 @@ mod tests {
 
         let parsed_env = parse_envelope(&encoded).expect("Consume failed");
         let mut parsed_node_info = NodeInfo::default();
-        parsed_node_info.unmarshal(&parsed_env.payload).expect("TODO: panic message");
+        parsed_node_info
+            .unmarshal(&parsed_env.payload)
+            .expect("TODO: panic message");
 
         assert_eq!(node_info, parsed_node_info);
     }
@@ -180,16 +186,19 @@ mod tests {
         };
 
         // 1) Marshal current_data
-        let data = current_data.marshal()
+        let data = current_data
+            .marshal()
             .expect("marshal_record should succeed");
 
         // 2) Unmarshal into parsed_rec
         let mut parsed_rec = NodeInfo::default();
-        parsed_rec.unmarshal(&data)
+        parsed_rec
+            .unmarshal(&data)
             .expect("unmarshal_record should succeed");
 
         // 3) Now unmarshal the old format data into the same struct
-        parsed_rec.unmarshal(old_serialized_data)
+        parsed_rec
+            .unmarshal(old_serialized_data)
             .expect("unmarshal old data should succeed");
 
         // 4) Compare

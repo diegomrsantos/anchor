@@ -1,5 +1,5 @@
-pub mod node_info;
 mod envelope;
+pub mod node_info;
 
 use crate::handshake::envelope::Codec;
 use crate::handshake::envelope::Envelope;
@@ -8,7 +8,10 @@ use discv5::libp2p_identity::Keypair;
 use discv5::multiaddr::Multiaddr;
 use libp2p::core::transport::PortUse;
 use libp2p::core::Endpoint;
-use libp2p::request_response::{self, Behaviour as RequestResponseBehaviour, Config, Event as RequestResponseEvent, InboundFailure, OutboundFailure, ProtocolSupport, ResponseChannel};
+use libp2p::request_response::{
+    self, Behaviour as RequestResponseBehaviour, Config, Event as RequestResponseEvent,
+    InboundFailure, OutboundFailure, ProtocolSupport, ResponseChannel,
+};
 use libp2p::swarm::{
     ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
     THandlerOutEvent, ToSwarm,
@@ -33,8 +36,14 @@ pub trait NodeInfoProvider: Send + Sync {
 /// Event emitted on handshake completion or failure.
 #[derive(Debug)]
 pub enum Event {
-    Completed { peer_id: PeerId, their_info: NodeInfo },
-    Failed { peer_id: PeerId, error: Error },
+    Completed {
+        peer_id: PeerId,
+        their_info: NodeInfo,
+    },
+    Failed {
+        peer_id: PeerId,
+        error: Error,
+    },
 }
 
 /// Network behaviour handling the handshake protocol.
@@ -49,17 +58,14 @@ pub struct Behaviour {
     events: Vec<Event>,
 }
 
-impl Behaviour
-{
-    pub fn new(
-        keypair: Keypair,
-        local_node_info: Box<dyn NodeInfoProvider>,
-    ) -> Self {
+impl Behaviour {
+    pub fn new(keypair: Keypair, local_node_info: Box<dyn NodeInfoProvider>) -> Self {
         // NodeInfoProtocol is the protocol.ID used for handshake
         const NODE_INFO_PROTOCOL: &str = "/ssv/info/0.0.1";
 
         let protocol = StreamProtocol::new(NODE_INFO_PROTOCOL);
-        let behaviour = RequestResponseBehaviour::new([(protocol, ProtocolSupport::Full)], Config::default());
+        let behaviour =
+            RequestResponseBehaviour::new([(protocol, ProtocolSupport::Full)], Config::default());
 
         Self {
             behaviour,
@@ -76,18 +82,23 @@ impl Behaviour
     }
 
     /// Verify an incoming envelope and apply filters.
-    fn verify_node_info(
-        &mut self,
-        node_info: &NodeInfo,
-    ) -> Result<(), Error> {
+    fn verify_node_info(&mut self, node_info: &NodeInfo) -> Result<(), Error> {
         let ours = self.node_info_provider.get_node_info().network_id;
         if node_info.network_id != *ours {
-            return Err(Error::NetworkMismatch { ours, theirs: node_info.network_id.clone()})
+            return Err(Error::NetworkMismatch {
+                ours,
+                theirs: node_info.network_id.clone(),
+            });
         }
         Ok(())
     }
 
-    fn handle_handshake_request(&mut self, peer_id: PeerId, request: Envelope, channel: ResponseChannel<Envelope>) {
+    fn handle_handshake_request(
+        &mut self,
+        peer_id: PeerId,
+        request: Envelope,
+        channel: ResponseChannel<Envelope>,
+    ) {
         // Handle incoming request: send response then verify
         let response = self.sealed_node_record();
         let _ = self.behaviour.send_response(channel, response.clone()); // Any error here is handled by the InboundFailure handler
@@ -110,18 +121,18 @@ impl Behaviour
         }
 
         match self.verify_node_info(&their_info) {
-            Ok(_) => self.events.push(Event::Completed { peer_id, their_info }),
-            Err(e) => self.events.push(Event::Failed {
+            Ok(_) => self.events.push(Event::Completed {
                 peer_id,
-                error: e,
+                their_info,
             }),
+            Err(e) => self.events.push(Event::Failed { peer_id, error: e }),
         }
     }
 }
 
-impl NetworkBehaviour for Behaviour
-{
-    type ConnectionHandler = <RequestResponseBehaviour<Codec> as NetworkBehaviour>::ConnectionHandler;
+impl NetworkBehaviour for Behaviour {
+    type ConnectionHandler =
+        <RequestResponseBehaviour<Codec> as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
@@ -189,29 +200,21 @@ impl NetworkBehaviour for Behaviour
                     RequestResponseEvent::Message {
                         peer,
                         message:
-                        request_response::Message::Request {
-                            request, channel, ..
-                        },
+                            request_response::Message::Request {
+                                request, channel, ..
+                            },
                     } => {
                         debug!("Received handshake request");
                         self.handle_handshake_request(peer, request, channel);
                     }
                     RequestResponseEvent::Message {
                         peer,
-                        message:
-                        request_response::Message::Response {
-                            response,
-                            ..
-                        },
+                        message: request_response::Message::Response { response, .. },
                     } => {
                         debug!(?response, "Received handshake response");
                         self.handle_handshake_response(peer, &response);
                     }
-                    RequestResponseEvent::OutboundFailure {
-                        peer,
-                        error,
-                        ..
-                    } => {
+                    RequestResponseEvent::OutboundFailure { peer, error, .. } => {
                         self.events.push(Event::Failed {
                             peer_id: peer,
                             error: Error::Outbound(error),

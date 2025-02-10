@@ -23,11 +23,11 @@ use crate::keypair_utils::load_private_key;
 use crate::transport::build_transport;
 use crate::Config;
 
+use crate::handshake::node_info::{NodeInfo, NodeMetadata};
 use crate::handshake::{Behaviour, Event, NodeInfoProvider};
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
-use crate::handshake::node_info::{NodeInfo, NodeMetadata};
 use subnet_tracker::{SubnetEvent, SubnetId};
 use tokio::sync::mpsc;
 
@@ -220,7 +220,10 @@ fn subnet_to_topic(subnet: SubnetId) -> IdentTopic {
 
 fn handle_handshake_event(ev: Event) {
     match ev {
-        Event::Completed { peer_id, their_info } => {
+        Event::Completed {
+            peer_id,
+            their_info,
+        } => {
             debug!(%peer_id, ?their_info, "Handshake completed");
             // Update peer store with their_info
         }
@@ -361,7 +364,6 @@ fn build_swarm(
         .with_swarm_config(|_| swarm_config)
         .build()
 }
-
 
 pub struct DefaultNodeInfoProvider {
     node_info: Arc<Mutex<NodeInfo>>,

@@ -1,12 +1,12 @@
+use crate::handshake::envelope;
 use crate::handshake::envelope::{parse_envelope, Envelope};
+use async_trait::async_trait;
 use futures::{AsyncReadExt, AsyncWriteExt};
 use libp2p::futures::{AsyncRead, AsyncWrite};
 use libp2p::request_response::Codec as RequestResponseCodec;
-use std::io;
-use async_trait::async_trait;
 use libp2p::StreamProtocol;
+use std::io;
 use tracing::debug;
-use crate::handshake::envelope;
 
 impl From<envelope::Error> for io::Error {
     fn from(err: envelope::Error) -> io::Error {
