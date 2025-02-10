@@ -8,6 +8,8 @@ use libp2p::StreamProtocol;
 use std::io;
 use tracing::debug;
 
+const MAXIMUM_SIZE: u64 = 1024;
+
 impl From<envelope::Error> for io::Error {
     fn from(err: envelope::Error) -> io::Error {
         io::Error::new(io::ErrorKind::InvalidData, err)
@@ -34,7 +36,8 @@ impl RequestResponseCodec for Codec {
     {
         debug!("reading handsake request");
         let mut msg_buf = Vec::new();
-        let num_bytes_read = io.read_to_end(&mut msg_buf).await?;
+        let num_bytes_read = io.take(MAXIMUM_SIZE).read_to_end(&mut msg_buf).await?;
+        // TODO potentially try to read one more byte here and create a "message too large error"
         debug!(?num_bytes_read, "read handshake request");
         let env = Envelope::decode_from_slice(&msg_buf)?;
         debug!(?env, "decoded handshake request");
@@ -53,7 +56,7 @@ impl RequestResponseCodec for Codec {
         let mut msg_buf = Vec::new();
         // We don't need a varint here because we always read only one message in protocol.
         // In this way we can just read until the end of the stream.
-        let num_bytes_read = io.read_to_end(&mut msg_buf).await?;
+        let num_bytes_read = io.take(MAXIMUM_SIZE).read_to_end(&mut msg_buf).await?;
         debug!(?num_bytes_read, "read handshake response");
 
         let env = parse_envelope(&msg_buf)?;
