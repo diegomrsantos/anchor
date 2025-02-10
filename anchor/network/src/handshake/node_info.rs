@@ -104,7 +104,7 @@ impl NodeInfo {
         let raw_payload = self.marshal()?;
 
         // 2) build the "unsigned" data
-        let unsigned = make_unsigned(domain.as_bytes(), payload_type, &raw_payload);
+        let unsigned = make_unsigned(domain.as_bytes(), payload_type, &raw_payload).unwrap();
 
         // 3) sign
         let sig = keypair.sign(&unsigned)?;
@@ -145,6 +145,17 @@ mod tests {
         let data = envelope.encode_to_vec().unwrap();
 
         let parsed_env = parse_envelope(&data).expect("Consume failed");
+        let mut parsed_node_info = NodeInfo::default();
+        parsed_node_info.unmarshal(&parsed_env.payload).expect("TODO: panic message");
+
+        assert_eq!(node_info, parsed_node_info);
+
+        let encoded=
+            hex::decode("0a250802122102ba6a707dcec6c60ba2793d52123d34b22556964fc798d4aa88ffc41\
+            a00e42407120c7373762f6e6f6465696e666f1aa5017b22456e7472696573223a5b22222c22686f6c65736b7\
+            9222c227b5c224e6f646556657273696f6e5c223a5c22676574682f785c222c5c22457865637574696f6e4e6f64655c223a5c22676574682f785c222c5c22436f6e73656e7375734e6f64655c223a5c22707279736d2f785c222c5c225375626e6574735c223a5c2230303030303030303030303030303030303030303030303030303030303030305c227d225d7d2a473045022100b8a2a668113330369e74b86ec818a87009e2a351f7ee4c0e431e1f659dd1bc3f02202b1ebf418efa7fb0541f77703bea8563234a1b70b8391d43daa40b6e7c3fcc84").unwrap();
+
+        let parsed_env = parse_envelope(&encoded).expect("Consume failed");
         let mut parsed_node_info = NodeInfo::default();
         parsed_node_info.unmarshal(&parsed_env.payload).expect("TODO: panic message");
 

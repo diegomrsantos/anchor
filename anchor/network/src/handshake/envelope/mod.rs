@@ -1,19 +1,16 @@
 mod codec;
+mod envelope;
 
 use crate::handshake::node_info::NodeInfo;
 use discv5::libp2p_identity::PublicKey;
 use libp2p::identity::DecodingError;
-use prost::{DecodeError, EncodeError, Message};
-
+use quick_protobuf::{Writer, Error as ProtoError, BytesReader, MessageRead, MessageWrite};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Decode error: {0}")]
-    Decode(#[from] DecodeError), // Automatically implements `From<DecodeError> for Error`
-
-    #[error("Encode error: {0}")]
-    Encode(#[from] EncodeError),
+    #[error("Coding error: {0}")]
+    Coding(#[from] ProtoError), // Automatically implements `From<DecodeError> for Error`
 
     #[error("Public Key Decoding error: {0}")]
     PublicKeyDecoding(#[from] DecodingError),
@@ -22,40 +19,20 @@ pub enum Error {
     SignatureVerification(String),
 }
 
-/// The Envelope structure exactly matching Go's Envelope fields and tags:
-///   1 => public_key
-///   2 => payload_type
-///   3 => payload
-///   4 => signature
-///
-/// All are `bytes`, just like in Go.
-#[derive(Clone, PartialEq, Message)]
-pub struct Envelope {
-    #[prost(bytes = "vec", tag = "1")]
-    pub public_key: Vec<u8>,
-
-    #[prost(bytes = "vec", tag = "2")]
-    pub payload_type: Vec<u8>,
-
-    #[prost(bytes = "vec", tag = "3")]
-    pub payload: Vec<u8>,
-
-    #[prost(bytes = "vec", tag = "5")]
-    pub signature: Vec<u8>,
-}
-
-
 impl Envelope {
     /// Encode the Envelope to a Protobuf byte array (like `proto.Marshal` in Go).
     pub fn encode_to_vec(&self) -> Result<Vec<u8>, Error> {
-        let mut buf = Vec::with_capacity(self.encoded_len());
-        self.encode(&mut buf)?;
+        let mut buf = Vec::new();
+        let mut writer = Writer::new(&mut buf);
+        self.write_message(&mut writer)?;
         Ok(buf)
     }
 
     /// Decode an Envelope from a Protobuf byte array (like `proto.Unmarshal` in Go).
     pub fn decode_from_slice(data: &[u8]) -> Result<Self, Error> {
-        Envelope::decode(data).map_err(Error::from)
+        let mut reader = BytesReader::from_bytes(&data);
+        let env = Envelope::from_reader(&mut reader, &data).map_err(Error::Coding)?;
+        Ok(env)
     }
 }
 
@@ -72,28 +49,24 @@ pub fn parse_envelope(
 
     let pk = PublicKey::try_decode_protobuf(&env.public_key.to_vec())?;
 
-    if !pk.verify(&unsigned, &env.signature) {
+    if !pk.verify(&unsigned?, &env.signature) {
         return Err(SignatureVerification("signature verification failed".into()));
     }
 
     Ok(env)
 }
 
-pub fn make_unsigned(domain: &[u8], payload_type: &[u8], payload: &[u8]) -> Vec<u8> {
-    use prost::encoding::encode_varint;
-    let mut out = Vec::new();
-
-    encode_varint(domain.len() as u64, &mut out);
-    out.extend_from_slice(domain);
-
-    encode_varint(payload_type.len() as u64, &mut out);
-    out.extend_from_slice(payload_type);
-
-    encode_varint(payload.len() as u64, &mut out);
-    out.extend_from_slice(payload);
-
-    out
+pub fn make_unsigned(domain: &[u8], payload_type: &[u8], payload: &[u8]) -> Result<Vec<u8>, ProtoError> {
+    let mut buf = Vec::new();
+    {
+        let mut writer = Writer::new(&mut buf);
+        writer.write_bytes(domain)?;
+        writer.write_bytes(payload_type)?;
+        writer.write_bytes(payload)?;
+    }
+    Ok(buf)
 }
 
 use crate::handshake::envelope::Error::SignatureVerification;
 pub use codec::Codec;
+pub use envelope::Envelope;

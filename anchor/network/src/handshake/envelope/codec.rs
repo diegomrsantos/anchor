@@ -51,6 +51,8 @@ impl RequestResponseCodec for Codec {
     {
         debug!("reading handshake response");
         let mut msg_buf = Vec::new();
+        // We don't need a varint here because we always read only one message in protocol.
+        // In this way we can just read until the end of the stream.
         let num_bytes_read = io.read_to_end(&mut msg_buf).await?;
         debug!(?num_bytes_read, "read handshake response");
 
