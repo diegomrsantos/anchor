@@ -378,7 +378,7 @@ impl DefaultNodeInfoProvider {
 
 impl NodeInfoProvider for DefaultNodeInfoProvider {
     fn get_node_info(&self) -> NodeInfo {
-        // In a real implementation, consider handling lock poisoning.
+        // TODO consider handling lock poisoning.
         self.node_info.lock().unwrap().clone()
     }
 }

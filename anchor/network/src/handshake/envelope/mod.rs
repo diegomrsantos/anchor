@@ -10,7 +10,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Coding error: {0}")]
-    Coding(#[from] ProtoError), // Automatically implements `From<DecodeError> for Error`
+    Coding(#[from] ProtoError), // Automatically implements `From<ProtoError> for Error`
 
     #[error("Public Key Decoding error: {0}")]
     PublicKeyDecoding(#[from] DecodingError),
@@ -36,7 +36,7 @@ impl Envelope {
     }
 }
 
-/// Consumes an Envelope => verify signature => parse the record.
+/// Decodes an Envelope and verify signature.
 pub fn parse_envelope(bytes: &[u8]) -> Result<Envelope, Error> {
     let env = Envelope::decode_from_slice(bytes)?;
 

@@ -81,7 +81,6 @@ impl Behaviour {
         node_info.seal(&self.keypair).unwrap()
     }
 
-    /// Verify an incoming envelope and apply filters.
     fn verify_node_info(&mut self, node_info: &NodeInfo) -> Result<(), Error> {
         let ours = self.node_info_provider.get_node_info().network_id;
         if node_info.network_id != *ours {

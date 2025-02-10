@@ -94,22 +94,18 @@ impl NodeInfo {
     /// Seals a `Record` into an Envelope by:
     ///  1) marshalling record to bytes,
     ///  2) building "unsigned" data (domain + codec + payload),
-    ///  3) signing with ed25519,
+    ///  3) signing,
     ///  4) storing into `Envelope`.
     pub fn seal(&self, keypair: &Keypair) -> Result<Envelope, Error> {
         let domain = Self::DOMAIN;
         let payload_type = Self::CODEC;
 
-        // 1) marshal
         let raw_payload = self.marshal()?;
 
-        // 2) build the "unsigned" data
         let unsigned = make_unsigned(domain.as_bytes(), payload_type, &raw_payload).unwrap();
 
-        // 3) sign
         let sig = keypair.sign(&unsigned)?;
 
-        // 4) build Envelope
         let env = Envelope {
             public_key: keypair.public().encode_protobuf(),
             payload_type: payload_type.to_vec(),
@@ -139,7 +135,7 @@ mod tests {
             }),
         );
 
-        // Marshal the NodeInfo into bytes
+        // Marshal the NodeInfo into bytes and wrap it into an Envelope
         let envelope = node_info
             .seal(&Keypair::generate_secp256k1())
             .expect("Seal failed");
