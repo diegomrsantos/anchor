@@ -288,7 +288,6 @@ async fn build_anchor_behaviour(
     };
 
     let domain = format!("0x{}", hex::encode(vec![0x0, 0x0, 0x5, 0x2]));
-    println!("Domain: {}", domain);
     let node_info = NodeInfo::new(
         domain,
         Some(NodeMetadata {
