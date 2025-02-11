@@ -36,6 +36,7 @@ thiserror = "1.0.69"
 tokio = { workspace = true }
 tracing = { workspace = true }
 version = { workspace = true }
+ssv_network_config = { workspace = true }
 
 [dev-dependencies]
 async-channel = { workspace = true }

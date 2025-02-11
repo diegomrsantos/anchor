@@ -4,6 +4,7 @@ use eth2_network_config::Eth2NetworkConfig;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use alloy::hex;
 
 macro_rules! include_str_for_net {
     ($network:ident, $file:literal) => {
@@ -28,12 +29,41 @@ macro_rules! get_hardcoded {
 }
 
 #[derive(Clone, Debug)]
+pub struct DomainType(pub [u8; 4]);
+
+impl FromStr for DomainType {
+    type Err = String;
+
+    fn from_str(hex_str: &str) -> Result<Self, Self::Err> {
+        let bytes = hex::decode(hex_str).map_err(|_| "Invalid domain type hex")?;
+        if bytes.len() != 4 {
+            return Err("Domain type must be 4 bytes".into());
+        }
+        let mut domain_type = [0; 4];
+        domain_type.copy_from_slice(&bytes);
+        Ok(Self(domain_type))
+    }
+}
+
+impl From<DomainType> for String {
+    fn from(domain_type: DomainType) -> Self {
+        hex::encode(&domain_type.0)
+    }
+}
+
+impl Default for DomainType {
+    fn default() -> Self {
+        Self([0; 4])
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct SsvNetworkConfig {
     pub eth2_network: Eth2NetworkConfig,
     pub ssv_boot_nodes: Option<Vec<Enr<CombinedKey>>>,
     pub ssv_contract: Address,
     pub ssv_contract_block: u64,
-    pub ssv_domain_type: String
+    pub ssv_domain_type: DomainType,
 }
 
 impl SsvNetworkConfig {
@@ -81,7 +111,7 @@ impl SsvNetworkConfig {
             ssv_boot_nodes,
             ssv_contract: read(&base_dir.join("ssv_contract_address.txt"))?,
             ssv_contract_block: read(&base_dir.join("ssv_contract_block.txt"))?,
-            ssv_domain_type: read(&base_dir.join("domain_type.txt"))?,
+            ssv_domain_type: read(&base_dir.join("ssv_domain_type.txt"))?,
             eth2_network: Eth2NetworkConfig::load(base_dir)?,
         })
     }
