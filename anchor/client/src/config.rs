@@ -103,10 +103,8 @@ impl Config {
 /// `cli_args`.
 pub fn from_cli(cli_args: &Anchor) -> Result<Config, String> {
     let eth2_network = if let Some(testnet_dir) = &cli_args.testnet_dir {
-        println!("Loading testnet from {:?}", testnet_dir);
         SsvNetworkConfig::load(testnet_dir.clone())
     } else {
-        println!("Loading default network {:?}", cli_args.network);
         SsvNetworkConfig::constant(&cli_args.network)
             .and_then(|net| net.ok_or_else(|| format!("Unknown network {}", cli_args.network)))
     }?;
