@@ -1,10 +1,10 @@
+use alloy::hex;
 use alloy::primitives::Address;
 use enr::{CombinedKey, Enr};
 use eth2_network_config::Eth2NetworkConfig;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use alloy::hex;
 
 macro_rules! include_str_for_net {
     ($network:ident, $file:literal) => {
@@ -28,7 +28,7 @@ macro_rules! get_hardcoded {
     };
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DomainType(pub [u8; 4]);
 
 impl FromStr for DomainType {
@@ -47,13 +47,7 @@ impl FromStr for DomainType {
 
 impl From<DomainType> for String {
     fn from(domain_type: DomainType) -> Self {
-        hex::encode(&domain_type.0)
-    }
-}
-
-impl Default for DomainType {
-    fn default() -> Self {
-        Self([0; 4])
+        hex::encode(domain_type.0)
     }
 }
 
