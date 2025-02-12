@@ -7,7 +7,7 @@ use crate::handshake::node_info::NodeInfo;
 use discv5::libp2p_identity::Keypair;
 use discv5::multiaddr::Multiaddr;
 use libp2p::core::transport::PortUse;
-use libp2p::core::Endpoint;
+use libp2p::core::{ConnectedPoint, Endpoint};
 use libp2p::request_response::{
     self, Behaviour as RequestResponseBehaviour, Config, Event as RequestResponseEvent,
     InboundFailure, OutboundFailure, ProtocolSupport, ResponseChannel,
@@ -169,9 +169,12 @@ impl NetworkBehaviour for Behaviour {
     fn on_swarm_event(&mut self, event: FromSwarm) {
         // Initiate handshake on new connection
         if let FromSwarm::ConnectionEstablished(conn_est) = &event {
-            let peer = conn_est.peer_id;
-            let request = self.sealed_node_record();
-            self.behaviour.send_request(&peer, request);
+            // Only send handshake request if we initiated the connection (outbound)
+            if let ConnectedPoint::Dialer { .. } = conn_est.endpoint {
+                let peer = conn_est.peer_id;
+                let request = self.sealed_node_record();
+                self.behaviour.send_request(&peer, request);
+            }
         }
 
         // Delegate other events to inner behaviour
