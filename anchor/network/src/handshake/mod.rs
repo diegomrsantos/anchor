@@ -226,18 +226,10 @@ impl NetworkBehaviour for Behaviour {
                     }
                     _ => {}
                 },
-                ToSwarm::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                } => {
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id,
-                        handler,
-                        event,
-                    });
+                other => {
+                    // Bubble up all other ToSwarm events. The closure is unreachable because we already handled GenerateEvent
+                    return Poll::Ready(other.map_out(|_| { unreachable!("We already handled GenerateEvent") }));
                 }
-                _ => {}
             }
         }
 
