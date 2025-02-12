@@ -16,7 +16,7 @@ impl From<envelope::Error> for io::Error {
     }
 }
 
-/// A `Codec` that reads/writes an **`Envelope`**
+/// A `Codec` that reads/writes an **`Envelope`**.
 #[derive(Clone, Debug, Default)]
 pub struct Codec;
 
