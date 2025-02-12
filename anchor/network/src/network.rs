@@ -1,6 +1,6 @@
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -363,23 +363,25 @@ fn build_swarm(
 }
 
 pub struct NodeInfoManager {
-    node_info: Arc<Mutex<NodeInfo>>,
+    node_info: Arc<RwLock<NodeInfo>>,
 }
 
 impl NodeInfoManager {
     pub fn new(node_info: NodeInfo) -> Self {
         Self {
-            node_info: Arc::new(Mutex::new(node_info)),
+            node_info: Arc::new(RwLock::new(node_info)),
         }
     }
+
     pub fn get_node_info(&self) -> NodeInfo {
-        // TODO consider handling lock poisoning.
-        self.node_info.lock().unwrap().clone()
+        // Using unwrap() here will panic if the lock is poisoned.
+        // We might choose to handle the error more gracefully.
+        self.node_info.read().unwrap().clone()
     }
 
     pub fn set_node_info(&self, node_info: NodeInfo) {
-        // TODO consider handling lock poisoning.
-        *self.node_info.lock().unwrap() = node_info;
+        // Using unwrap() here will panic if the lock is poisoned.
+        *self.node_info.write().unwrap() = node_info;
     }
 }
 
