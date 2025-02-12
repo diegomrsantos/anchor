@@ -228,7 +228,9 @@ impl NetworkBehaviour for Behaviour {
                 },
                 other => {
                     // Bubble up all other ToSwarm events. The closure is unreachable because we already handled GenerateEvent
-                    return Poll::Ready(other.map_out(|_| { unreachable!("We already handled GenerateEvent") }));
+                    return Poll::Ready(
+                        other.map_out(|_| unreachable!("We already handled GenerateEvent")),
+                    );
                 }
             }
         }

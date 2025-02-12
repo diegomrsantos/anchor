@@ -1,6 +1,6 @@
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use futures::StreamExt;
