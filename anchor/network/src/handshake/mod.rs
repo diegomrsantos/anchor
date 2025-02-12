@@ -19,6 +19,7 @@ use libp2p::swarm::{
 use libp2p::{PeerId, StreamProtocol};
 use std::task::{Context, Poll};
 use tracing::debug;
+use crate::network::NodeInfoManager;
 
 #[derive(Debug)]
 pub enum Error {
@@ -26,11 +27,6 @@ pub enum Error {
     NodeInfo(node_info::Error),
     Inbound(InboundFailure),
     Outbound(OutboundFailure),
-}
-
-pub trait NodeInfoProvider: Send + Sync {
-    /// Returns a clone of the current node information.
-    fn get_node_info(&self) -> NodeInfo;
 }
 
 /// Event emitted on handshake completion or failure.
@@ -53,13 +49,13 @@ pub struct Behaviour {
     /// Keypair for signing envelopes.
     keypair: Keypair,
     /// Local node's information provider.
-    node_info_provider: Box<dyn NodeInfoProvider>,
+    node_info_manager: NodeInfoManager,
     /// Events to emit.
     events: Vec<Event>,
 }
 
 impl Behaviour {
-    pub fn new(keypair: Keypair, local_node_info: Box<dyn NodeInfoProvider>) -> Self {
+    pub fn new(keypair: Keypair, local_node_info: NodeInfoManager) -> Self {
         // NodeInfoProtocol is the protocol.ID used for handshake
         const NODE_INFO_PROTOCOL: &str = "/ssv/info/0.0.1";
 
@@ -70,19 +66,19 @@ impl Behaviour {
         Self {
             behaviour,
             keypair,
-            node_info_provider: local_node_info,
+            node_info_manager: local_node_info,
             events: Vec::new(),
         }
     }
 
     /// Create a signed envelope containing local node info.
     fn sealed_node_record(&self) -> Envelope {
-        let node_info = self.node_info_provider.get_node_info();
+        let node_info = self.node_info_manager.get_node_info();
         node_info.seal(&self.keypair).unwrap()
     }
 
     fn verify_node_info(&mut self, node_info: &NodeInfo) -> Result<(), Error> {
-        let ours = self.node_info_provider.get_node_info().network_id;
+        let ours = self.node_info_manager.get_node_info().network_id;
         if node_info.network_id != *ours {
             return Err(Error::NetworkMismatch {
                 ours,

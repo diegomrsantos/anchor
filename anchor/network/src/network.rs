@@ -24,7 +24,7 @@ use crate::transport::build_transport;
 use crate::Config;
 
 use crate::handshake::node_info::{NodeInfo, NodeMetadata};
-use crate::handshake::{Behaviour, Event, NodeInfoProvider};
+use crate::handshake::{Behaviour, Event};
 use crate::types::ssv_message::SignedSSVMessage;
 use lighthouse_network::EnrExt;
 use ssz::Decode;
@@ -300,7 +300,7 @@ async fn build_anchor_behaviour(
     );
     let handshake = Behaviour::new(
         local_keypair.clone(),
-        Box::new(DefaultNodeInfoProvider::new(node_info)),
+        NodeInfoManager::new(node_info),
     );
 
     AnchorBehaviour {
@@ -365,22 +365,24 @@ fn build_swarm(
         .build()
 }
 
-pub struct DefaultNodeInfoProvider {
+pub struct NodeInfoManager {
     node_info: Arc<Mutex<NodeInfo>>,
 }
 
-impl DefaultNodeInfoProvider {
+impl NodeInfoManager {
     pub fn new(node_info: NodeInfo) -> Self {
         Self {
             node_info: Arc::new(Mutex::new(node_info)),
         }
     }
-}
-
-impl NodeInfoProvider for DefaultNodeInfoProvider {
-    fn get_node_info(&self) -> NodeInfo {
+    pub fn get_node_info(&self) -> NodeInfo {
         // TODO consider handling lock poisoning.
         self.node_info.lock().unwrap().clone()
+    }
+
+    pub fn set_node_info(&self, node_info: NodeInfo) {
+        // TODO consider handling lock poisoning.
+        *self.node_info.lock().unwrap() = node_info;
     }
 }
 
