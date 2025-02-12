@@ -298,10 +298,7 @@ async fn build_anchor_behaviour(
             subnets: "ffffffffffffffffffffffffffffffff".to_string(),
         }),
     );
-    let handshake = Behaviour::new(
-        local_keypair.clone(),
-        NodeInfoManager::new(node_info),
-    );
+    let handshake = Behaviour::new(local_keypair.clone(), NodeInfoManager::new(node_info));
 
     AnchorBehaviour {
         identify,

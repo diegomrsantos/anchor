@@ -4,6 +4,7 @@ pub mod node_info;
 use crate::handshake::envelope::Codec;
 use crate::handshake::envelope::Envelope;
 use crate::handshake::node_info::NodeInfo;
+use crate::network::NodeInfoManager;
 use discv5::libp2p_identity::Keypair;
 use discv5::multiaddr::Multiaddr;
 use libp2p::core::transport::PortUse;
@@ -19,7 +20,6 @@ use libp2p::swarm::{
 use libp2p::{PeerId, StreamProtocol};
 use std::task::{Context, Poll};
 use tracing::debug;
-use crate::network::NodeInfoManager;
 
 #[derive(Debug)]
 pub enum Error {
