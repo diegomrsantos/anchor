@@ -13,18 +13,24 @@ use ssv_types::{CommitteeId, OperatorId};
 /// Number of subnets in the SSV network.
 pub const SUBNET_COUNT: usize = 128;
 
+/// Number of subnets as NonZeroU64 for safe arithmetic operations.
+pub const SUBNET_COUNT_NZ: NonZeroU64 = match NonZeroU64::new(SUBNET_COUNT as u64) {
+    Some(n) => n,
+    None => panic!("SUBNET_COUNT must be non-zero"),
+};
+
 /// Bit array representing subnet membership.
 pub type SubnetBits = [u8; SUBNET_COUNT / 8];
 
 /// Errors that can occur during subnet calculation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SubnetCalculationError {
     /// The operator list provided was empty.
     EmptyOperatorList,
-    /// The subnet count is invalid (zero).
-    InvalidSubnetCount,
     /// The calculated subnet ID doesn't fit in a u64.
     SubnetIdOutOfRange,
+    /// Message arrived on wrong topic/subnet for the committee.
+    IncorrectTopic,
 }
 
 /// Identifies a subnet in the SSV network.
@@ -48,14 +54,42 @@ impl SubnetId {
     /// # Algorithm
     ///
     /// `committee_id % subnet_count`
-    pub fn from_committee_alan(committee_id: CommitteeId, subnet_count: usize) -> Self {
-        // Derive a numeric "committee ID" and convert to an index in [0..subnet_count].
+    ///
+    /// # Errors
+    ///
+    /// - `SubnetCalculationError::SubnetIdOutOfRange` if the modulo result cannot fit in `u64`
+    pub fn from_committee_alan(
+        committee_id: CommitteeId,
+        subnet_count: NonZeroU64,
+    ) -> Result<Self, SubnetCalculationError> {
         let id = U256::from_be_bytes(*committee_id);
-        SubnetId(
-            (id % U256::from(subnet_count))
-                .try_into()
-                .expect("modulo must be < subnet_count"),
-        )
+        let modulus = U256::from(subnet_count.get());
+
+        let subnet_id: u64 = (id % modulus)
+            .try_into()
+            .map_err(|_| SubnetCalculationError::SubnetIdOutOfRange)?;
+
+        Ok(SubnetId(subnet_id))
+    }
+
+    /// Topic prefix for SSV gossipsub topics.
+    pub const TOPIC_PREFIX: &'static str = "ssv.v2.";
+
+    /// Format this subnet as a gossipsub topic string.
+    ///
+    /// Returns the topic in format "ssv.v2.<subnet_id>".
+    pub fn to_topic_string(&self) -> String {
+        format!("{}{}", Self::TOPIC_PREFIX, self.0)
+    }
+
+    /// Parse a subnet ID from a gossipsub topic string.
+    ///
+    /// Expects format "ssv.v2.<subnet_id>".
+    pub fn from_topic_str(topic: &str) -> Option<Self> {
+        topic
+            .strip_prefix(Self::TOPIC_PREFIX)
+            .and_then(|rest| rest.parse::<u64>().ok())
+            .map(SubnetId::from)
     }
 
     /// Calculate subnet using MinHash of operator IDs (post-fork algorithm).
@@ -223,7 +257,8 @@ mod tests {
     fn test_from_committee_alan_unchanged() {
         // Verify old algorithm still works correctly
         let committee_id = CommitteeId::from([0x01u8; 32]);
-        let subnet = SubnetId::from_committee_alan(committee_id, 128);
+        let subnet =
+            SubnetId::from_committee_alan(committee_id, SUBNET_COUNT_NZ).expect("valid committee");
 
         // committee_id % 128 should give predictable result
         let expected = U256::from_be_bytes([0x01u8; 32]) % U256::from(128);
@@ -244,7 +279,8 @@ mod tests {
         ];
 
         for committee_id in committee_ids {
-            let subnet = SubnetId::from_committee_alan(committee_id, 128);
+            let subnet =
+                SubnetId::from_committee_alan(committee_id, SUBNET_COUNT_NZ).expect("valid commit");
             assert!((*subnet) < 128);
         }
     }
@@ -263,7 +299,26 @@ mod tests {
         assert!((*subnet_new) < 128);
 
         let committee_id = CommitteeId::from([0xffu8; 32]);
-        let subnet_old = SubnetId::from_committee_alan(committee_id, 128);
+        let subnet_old =
+            SubnetId::from_committee_alan(committee_id, SUBNET_COUNT_NZ).expect("valid committee");
         assert!((*subnet_old) < 128);
+    }
+
+    #[test]
+    fn test_topic_string_roundtrip() {
+        let subnet = SubnetId::new(42);
+        let topic = subnet.to_topic_string();
+        assert_eq!(topic, "ssv.v2.42");
+
+        let parsed = SubnetId::from_topic_str(&topic);
+        assert_eq!(parsed, Some(subnet));
+    }
+
+    #[test]
+    fn test_topic_string_invalid() {
+        assert_eq!(SubnetId::from_topic_str("invalid"), None);
+        assert_eq!(SubnetId::from_topic_str("ssv.v2."), None);
+        assert_eq!(SubnetId::from_topic_str("ssv.v2.abc"), None);
+        assert_eq!(SubnetId::from_topic_str("ssv.v1.42"), None);
     }
 }

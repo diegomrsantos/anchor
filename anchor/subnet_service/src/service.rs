@@ -16,7 +16,7 @@ use tracing::{debug, error, warn};
 use types::{ChainSpec, EthSpec};
 
 use crate::{
-    SubnetEvent, SubnetId, message_rate,
+    SUBNET_COUNT_NZ, SubnetEvent, SubnetId, message_rate,
     scoring::{calculate_message_rate_for_subnet, get_committee_info_for_subnet},
 };
 
@@ -140,9 +140,10 @@ impl<S: SlotClock> SubnetService<S> {
         {
             let state = self.db.borrow();
             for cluster_id in state.get_own_clusters() {
-                if let Some(cluster) = state.clusters().get_by(cluster_id) {
-                    let subnet_id =
-                        SubnetId::from_committee_alan(cluster.committee_id(), self.subnet_count);
+                if let Some(cluster) = state.clusters().get_by(cluster_id)
+                    && let Ok(subnet_id) =
+                        SubnetId::from_committee_alan(cluster.committee_id(), SUBNET_COUNT_NZ)
+                {
                     current_subnets.insert(subnet_id);
                 }
             }

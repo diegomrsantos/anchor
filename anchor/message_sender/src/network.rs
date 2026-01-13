@@ -13,7 +13,7 @@ use ssv_types::{
     CommitteeId, RSA_SIGNATURE_SIZE, consensus::UnsignedSSVMessage, message::SignedSSVMessage,
 };
 use ssz::Encode;
-use subnet_service::SubnetId;
+use subnet_service::{SUBNET_COUNT_NZ, SubnetId};
 use tokio::sync::{mpsc, mpsc::error::TrySendError, watch};
 use tracing::{debug, error, trace, warn};
 
@@ -29,7 +29,6 @@ pub struct NetworkMessageSenderConfig<S: SlotClock, D: DutiesProvider> {
     pub private_key: Rsa<Private>,
     pub operator_id: OwnOperatorId,
     pub validator: Option<Arc<Validator<S, D>>>,
-    pub subnet_count: usize,
     pub is_synced: watch::Receiver<bool>,
 }
 
@@ -39,7 +38,6 @@ pub struct NetworkMessageSender<S: SlotClock, D: DutiesProvider> {
     private_key: PKey<Private>,
     operator_id: OwnOperatorId,
     validator: Option<Arc<Validator<S, D>>>,
-    subnet_count: usize,
     is_synced: watch::Receiver<bool>,
 }
 
@@ -125,7 +123,6 @@ impl<S: SlotClock + 'static, D: DutiesProvider> NetworkMessageSender<S, D> {
             private_key,
             operator_id: config.operator_id,
             validator: config.validator,
-            subnet_count: config.subnet_count,
             is_synced: config.is_synced,
         }))
     }
@@ -148,7 +145,17 @@ impl<S: SlotClock + 'static, D: DutiesProvider> NetworkMessageSender<S, D> {
             return;
         }
 
-        let subnet = SubnetId::from_committee_alan(committee_id, self.subnet_count);
+        let subnet = match SubnetId::from_committee_alan(committee_id, SUBNET_COUNT_NZ) {
+            Ok(subnet) => subnet,
+            Err(err) => {
+                warn!(
+                    ?err,
+                    ?committee_id,
+                    "Failed to calculate subnet for committee"
+                );
+                return;
+            }
+        };
         match self.network_tx.try_send((subnet, message_bytes)) {
             Ok(_) => trace!(?subnet, "Successfully sent message to network"),
             Err(TrySendError::Closed(_)) => warn!("Network queue closed (shutting down?)"),

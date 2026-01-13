@@ -10,7 +10,7 @@ use database::NetworkState;
 use ssv_types::CommitteeInfo;
 use types::{ChainSpec, EthSpec};
 
-use crate::{SUBNET_COUNT, SubnetId, message_rate};
+use crate::{SUBNET_COUNT_NZ, SubnetId, message_rate};
 
 /// Calculate the expected message rate for a specific subnet.
 ///
@@ -51,9 +51,9 @@ pub fn get_committee_info_for_subnet(
         .clusters()
         .values()
         .filter(|cluster| {
-            let cluster_subnet =
-                SubnetId::from_committee_alan(cluster.committee_id(), SUBNET_COUNT);
-            cluster_subnet == *subnet
+            SubnetId::from_committee_alan(cluster.committee_id(), SUBNET_COUNT_NZ)
+                .map(|cluster_subnet| cluster_subnet == *subnet)
+                .unwrap_or(false)
         })
         .map(|cluster| {
             // Convert cluster to CommitteeInfo by getting validator indices

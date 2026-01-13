@@ -459,12 +459,11 @@ impl Client {
                     private_key: key.clone(),
                     operator_id: operator_id.clone(),
                     validator: Some(message_validator.clone()),
-                    subnet_count: SUBNET_COUNT,
                     is_synced: is_synced.clone(),
                 },
             )?)
         } else {
-            Arc::new(ImpostorMessageSender::new(network_tx.clone(), SUBNET_COUNT))
+            Arc::new(ImpostorMessageSender::new(network_tx.clone()))
         };
 
         // Create the signature collector
