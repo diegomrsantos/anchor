@@ -14,12 +14,17 @@ anchor keysplit <SUBCOMMAND> [OPTIONS]
 ### Shared Options
 
 | Option | Description | Default |
-| --- | --- | --- |
-| `--keystore-path <PATH>` | Path to the validator keystore file | None |
-| `--password <VALUE>` | Password for the validator keystore | None |
-| `--owner <VALUE>` | EOA address that owns the validator | None |
-| `--output-path <PATH>` | Path for output | None |
-| `--operators <VALUE>` | Operators to split key among | None |
+| --- | --- | ---|
+| `--keystore-path <PATH>` | Path to validator keystore file | Required |
+| `--password-file <PATH>` | Path to a file containing the password for the validator keystore (if omitted, password will be prompted) | None |
+| `--owner <ADDRESS>` | EOA address that owns the validator | Required |
+| `--output-path <OUTPUT PATH>` | Path for output file | Required |
+| `--operators <IDS>` | Comma-separated list of operator IDs | Required|
+| `-d, --data-dir <DIR>` | Data directory for node files | `~/.anchor/{network}` |
+| `--network <NETWORK>` | Network to use (mainnet, holesky, hoodi) | `hoodi` |
+| `-t, --testnet-dir <DIR>` | Directory containing testnet specs | None |
+| `--debug-level <DEBUG_LEVEL>` | Verbosity level for terminal logs | `INFO` |
+| `-h, --help` | Display help information | |
 
 ## Manual Keysplit Subcommand
 
@@ -30,26 +35,22 @@ anchor keysplit manual [OPTIONS]
 ### Manual-specific Options
 
 | Option | Description | Default |
-| --- | --- | --- |
-| `--keystore-path <PATH>` | Path to the validator keystore file | None |
-| `--password <VALUE>` | Password for the validator keystore | None |
-| `--owner <VALUE>` | EOA address that owns the validator | None |
-| `--output-path <PATH>` | Path for output | None |
-| `--operators <VALUE>` | Operators to split key among | None |
-| `--nonce <VALUE>` | Nonce for the owner address | None |
-| `--public-keys <VALUE>` | RSA public keys for the operators | None |
+| --- | --- | ---|
+| `--nonce <NONCE>` | Nonce for the owner address | Required |
+| `--public-keys <KEYS>...` | RSA public keys for the operators | Required|
 
 ### Example
 
 ```bash
 anchor keysplit manual \
   --keystore-path /path/to/validator_keystore.json \
-  --password "your_keystore_password" \
+  --password-file /path/to/password.txt \
   --owner 0x123abc... \
   --operators 1,2,3,4 \
   --output-path /path/to/output.json \
   --nonce 0 \
-  --public-keys key1,key2,key3,key4
+  --public-keys key1 key2 key3 key4 \
+  --network hoodi
 ```
 
 ## Onchain Keysplit Subcommand
@@ -74,7 +75,7 @@ anchor keysplit onchain [OPTIONS]
 ```bash
 anchor keysplit onchain \
   --keystore-path /path/to/validator_keystore.json \
-  --password "your_keystore_password" \
+  --password-file /path/to/password.txt \
   --owner 0x123abc... \
   --operators 1,2,3,4 \
   --output-path /path/to/output.json \

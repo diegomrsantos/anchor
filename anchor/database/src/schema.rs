@@ -12,10 +12,14 @@ struct Metadata {
     domain: DomainType,
 }
 
+/// Migration from schema version 1 to 2: Add max_operator_id_seen column to metadata table
+const MIGRATION_V1_TO_V2: &str = r#"
+    ALTER TABLE metadata ADD COLUMN max_operator_id_seen INTEGER;
+    UPDATE metadata SET schema_version = 2;
+"#;
+
 enum UpgradeAction {
     UpToDate,
-    // allow dead code until there are upgrade scripts
-    #[allow(dead_code)]
     DoUpdate {
         script: &'static str,
         new_version: SchemaVersion,
@@ -44,7 +48,7 @@ pub fn ensure_up_to_date(
     let conn = Connection::open(db_path)?;
 
     let mut schema_version = if is_new_file {
-        create_initial_schema(&conn, domain)?
+        Some(create_initial_schema(&conn, domain)?)
     } else {
         match determine_database_type(&conn, domain) {
             DatabaseType::Anchor(schema_version) => schema_version,
@@ -126,22 +130,29 @@ fn determine_database_type(conn: &Connection, domain: DomainType) -> DatabaseTyp
 }
 
 // Before release, update the return value of this function if the initial table schema was changed.
-fn create_initial_schema(
+pub(crate) fn create_initial_schema(
     conn: &rusqlite::Connection,
     domain: DomainType,
-) -> Result<Option<SchemaVersion>, DatabaseError> {
+) -> Result<SchemaVersion, DatabaseError> {
     conn.execute_batch(include_str!("table_schema.sql"))?;
     conn.execute(sql_operations::INSERT_METADATA, [&domain])?;
-    Ok(Some(0))
+    let schema_version = conn.query_row(sql_operations::GET_METADATA, [], |row| {
+        row.get("schema_version")
+    })?;
+    Ok(schema_version)
 }
 
 // Register upgrade scripts in this function and mark the current version. Define any versions for
-// which the schema is not upgradable as "Recreate" and all versions after the current version as
+// which the schema is not upgradable as "Outdated" and all versions after the current version as
 // "Future".
 fn get_upgrade_action(version: Option<SchemaVersion>) -> UpgradeAction {
     match version {
-        None => UpgradeAction::Outdated,
-        Some(0) => UpgradeAction::UpToDate,
-        Some(1..) => UpgradeAction::Future,
+        None | Some(0) => UpgradeAction::Outdated,
+        Some(1) => UpgradeAction::DoUpdate {
+            script: MIGRATION_V1_TO_V2,
+            new_version: 2,
+        },
+        Some(2) => UpgradeAction::UpToDate,
+        Some(3..) => UpgradeAction::Future,
     }
 }

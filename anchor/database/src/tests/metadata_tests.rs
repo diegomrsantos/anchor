@@ -4,12 +4,15 @@ use rusqlite::Connection;
 use ssv_types::domain_type::DomainType;
 use tempfile::TempDir;
 
-use super::test_prelude::*;
-use crate::{DatabaseError, schema};
+use crate::{
+    DatabaseError, schema,
+    test_utils::{generators, queries},
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NetworkDatabase;
 
     const TEST_DOMAIN_1: DomainType = DomainType([42, 42, 42, 42]);
     const TEST_DOMAIN_2: DomainType = DomainType([99, 99, 99, 99]);
@@ -31,8 +34,8 @@ mod tests {
         let metadata = queries::get_metadata(&conn).expect("Failed to get metadata");
 
         assert_eq!(
-            metadata.schema_version, 0,
-            "Initial schema version should be 0"
+            metadata.schema_version, 2,
+            "Initial schema version should be 2"
         );
         assert_eq!(metadata.domain, TEST_DOMAIN_1, "Domain should match input");
         assert_eq!(metadata.block_number, 0, "Initial block number should be 0");
@@ -40,6 +43,7 @@ mod tests {
 
     #[test]
     fn test_domain_type_validation() {
+        // Uses file-based DB to test reopening with different domain
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
 
@@ -63,6 +67,7 @@ mod tests {
 
     #[test]
     fn test_domain_type_validation_success() {
+        // Uses file-based DB to test reopening with same domain
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
 
@@ -122,12 +127,10 @@ mod tests {
 
     #[test]
     fn test_block_number_operations() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let db_path = temp_dir.path().join("test.db");
         let pubkey = generators::pubkey::random_rsa();
 
         // Create database
-        let db = NetworkDatabase::new(&db_path, &pubkey, TEST_DOMAIN_1)
+        let db = NetworkDatabase::new_in_memory(&pubkey, TEST_DOMAIN_1)
             .expect("Failed to create database");
 
         // Test initial block number
@@ -145,13 +148,6 @@ mod tests {
         // Verify update
         let updated_block = db.state().get_last_processed_block();
         assert_eq!(updated_block, new_block, "Block number should be updated");
-
-        // Verify persistence after restart
-        drop(db);
-        let db2 = NetworkDatabase::new(&db_path, &pubkey, TEST_DOMAIN_1)
-            .expect("Failed to reopen database");
-        let persisted_block = db2.state().get_last_processed_block();
-        assert_eq!(persisted_block, new_block, "Block number should persist");
     }
 
     #[test]
@@ -173,11 +169,49 @@ mod tests {
     }
 
     #[test]
-    fn test_domain_type_serialization() {
-        // Test DomainType conversion to/from SQL
+    fn test_migration_v1_to_v2() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
-        let conn = Connection::open(&db_path).expect("Failed to create database");
+
+        // Create a v1 database (without max_operator_id_seen column)
+        create_v1_database(&db_path, TEST_DOMAIN_1);
+
+        // Verify it's version 1
+        {
+            let conn = Connection::open(&db_path).expect("Failed to open database");
+            let metadata = queries::get_metadata(&conn).expect("Failed to get metadata");
+            assert_eq!(metadata.schema_version, 1, "Should start at version 1");
+        }
+
+        // Run migration
+        schema::ensure_up_to_date(&db_path, TEST_DOMAIN_1).expect("Migration should succeed");
+
+        // Verify migration succeeded
+        {
+            let conn = Connection::open(&db_path).expect("Failed to open database");
+            let metadata = queries::get_metadata(&conn).expect("Failed to get metadata");
+            assert_eq!(
+                metadata.schema_version, 2,
+                "Should be upgraded to version 2"
+            );
+
+            // Verify the new column exists and is NULL by default
+            let max_operator_id: Option<u64> = conn
+                .query_row("SELECT max_operator_id_seen FROM metadata", [], |row| {
+                    row.get(0)
+                })
+                .expect("Failed to query max_operator_id_seen");
+            assert_eq!(
+                max_operator_id, None,
+                "max_operator_id_seen should be NULL after migration"
+            );
+        }
+    }
+
+    #[test]
+    fn test_domain_type_serialization() {
+        // Test DomainType conversion to/from SQL using in-memory connection
+        let conn = Connection::open_in_memory().expect("Failed to create database");
 
         // Create metadata table
         conn.execute(
@@ -207,6 +241,24 @@ mod tests {
     }
 
     // Helper functions for creating test databases
+    fn create_v1_database(db_path: &PathBuf, domain: DomainType) {
+        let conn = Connection::open(db_path).expect("Failed to create v1 database");
+
+        // Create metadata table as it was in version 1 (without max_operator_id_seen)
+        conn.execute(
+            "CREATE TABLE metadata (
+                schema_version INTEGER NOT NULL DEFAULT 1,
+                domain_type INTEGER NOT NULL,
+                block_number INTEGER NOT NULL DEFAULT 0 CHECK (block_number >= 0)
+            )",
+            [],
+        )
+        .expect("Failed to create v1 metadata table");
+
+        conn.execute("INSERT INTO metadata (domain_type) VALUES (?1)", [&domain])
+            .expect("Failed to insert v1 metadata");
+    }
+
     fn create_legacy_database(db_path: &PathBuf) {
         let conn = Connection::open(db_path).expect("Failed to create legacy database");
 

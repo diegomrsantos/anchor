@@ -30,6 +30,11 @@ pub struct Config {
     /// that no discovery address has been set in the CLI args.
     pub enr_address: (Option<Ipv4Addr>, Option<Ipv6Addr>),
 
+    /// If the user wishes to set the ENR via CLI args, they may wish to disable discovery from
+    /// updating the ENR at a later time. If this is set to true, the ENR will be fixed to the CLI
+    /// parameters.
+    pub disable_enr_auto_update: bool,
+
     /// The udp ipv4 port to broadcast to peers in order to reach back for discovery.
     pub enr_udp4_port: Option<NonZeroU16>,
 
@@ -70,7 +75,14 @@ pub struct Config {
     pub subscribe_all_subnets: bool,
 
     /// Target number of connected peers.
-    pub target_peers: usize,
+    ///
+    /// If not specified, the target is calculated dynamically based on active subnets using the
+    /// formula: BASE_PEER_COUNT + active_subnets * PEERS_PER_SUBNET, capped at MAX_PEER_COUNT.
+    /// If specified, this static value is used regardless of subnet count.
+    pub target_peers: Option<usize>,
+
+    /// Attempt to construct external port mappings with UPnP.
+    pub upnp_enabled: bool,
 
     pub domain_type: DomainType,
 }
@@ -88,13 +100,14 @@ impl Config {
             network_dir,
             listen_addresses,
             enr_address: (None, None),
+            disable_enr_auto_update: false,
             enr_udp4_port: None,
             enr_quic4_port: None,
             enr_tcp4_port: None,
             enr_udp6_port: None,
             enr_tcp6_port: None,
             enr_quic6_port: None,
-            target_peers: 50,
+            target_peers: None,
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
             disable_gossipsub_peer_scoring: false,
@@ -103,6 +116,7 @@ impl Config {
             disable_quic_support: false,
             subscribe_all_subnets: false,
             domain_type: DomainType::default(),
+            upnp_enabled: true,
         }
     }
 }

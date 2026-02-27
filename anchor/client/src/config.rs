@@ -3,6 +3,7 @@
 
 use std::{net::IpAddr, path::PathBuf};
 
+use beacon_node_fallback::{ApiTopic, beacon_node_health::BeaconNodeSyncDistanceTiers};
 use global_config::GlobalConfig;
 use multiaddr::{Multiaddr, Protocol};
 use network::{DEFAULT_DISC_PORT, DEFAULT_TCP_PORT, ListenAddr, ListenAddress};
@@ -56,6 +57,10 @@ pub struct Config {
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to an execution node over SSL/TLS.
     pub execution_nodes_tls_certs: Option<Vec<PathBuf>>,
+    /// Configuration for beacon node fallback (sync tolerances).
+    pub beacon_node_fallback: beacon_node_fallback::Config,
+    /// Topics to broadcast to all beacon nodes.
+    pub broadcast_topics: Vec<ApiTopic>,
     /// Configuration for the processor
     pub processor: processor::Config,
     /// If slashing protection is disabled
@@ -64,14 +69,18 @@ pub struct Config {
     pub impostor: Option<OperatorId>,
     /// Gas limit on blocks
     pub gas_limit: u64,
-    /// Should payload construction be outsourced
-    pub builder_proposals: bool,
     /// Block boost factor
     pub builder_boost_factor: Option<u64>,
     /// Should external payloads always be preferred
     pub prefer_builder_proposals: bool,
     /// Controls whether the latency measurement service is enabled
     pub disable_latency_measurement_service: bool,
+    /// Enable operator doppelgänger protection (blocks messages and monitors for twins)
+    pub operator_dg: bool,
+    /// Number of epochs to monitor for twins after grace period
+    pub operator_dg_wait_epochs: u64,
+    /// Whether to check for matching checkpoint roots in QBFT.
+    pub strict_mfp: bool,
 }
 
 impl Config {
@@ -107,14 +116,18 @@ impl Config {
             network: network_config,
             beacon_nodes_tls_certs: None,
             execution_nodes_tls_certs: None,
+            beacon_node_fallback: <_>::default(),
+            broadcast_topics: vec![ApiTopic::Subscriptions],
             processor: <_>::default(),
             disable_slashing_protection: false,
             impostor: None,
-            builder_proposals: false,
             builder_boost_factor: None,
             prefer_builder_proposals: false,
             gas_limit: 36_000_000,
             disable_latency_measurement_service: false,
+            operator_dg: false,
+            operator_dg_wait_epochs: 2,
+            strict_mfp: false,
         }
     }
 }
@@ -176,6 +189,7 @@ pub fn from_cli(cli_args: &Node, global_config: GlobalConfig) -> Result<Config, 
         cli_args.network_options.enr_address,
         cli_args.network_options.enr_address6,
     );
+    config.network.disable_enr_auto_update = cli_args.network_options.disable_enr_auto_update;
     config.network.enr_tcp4_port = cli_args.network_options.enr_tcp_port;
     config.network.enr_udp4_port = cli_args.network_options.enr_udp_port;
     config.network.enr_quic4_port = cli_args.network_options.enr_quic_port;
@@ -185,6 +199,11 @@ pub fn from_cli(cli_args: &Node, global_config: GlobalConfig) -> Result<Config, 
 
     config.network.subscribe_all_subnets = cli_args.network_options.subscribe_all_subnets;
 
+    // If the flag was set (true), it means we disable upnp so upnp_enabled should be false
+    config.network.upnp_enabled = !cli_args.network_options.disable_upnp;
+
+    config.network.target_peers = cli_args.network_options.target_peers;
+
     // Network related - set peer scoring configuration
     config.network.disable_gossipsub_peer_scoring =
         cli_args.network_options.disable_gossipsub_peer_scoring;
@@ -193,10 +212,26 @@ pub fn from_cli(cli_args: &Node, global_config: GlobalConfig) -> Result<Config, 
     config.beacon_nodes_tls_certs = cli_args.external_apis.beacon_nodes_tls_certs.clone();
     config.execution_nodes_tls_certs = cli_args.external_apis.execution_nodes_tls_certs.clone();
 
+    // Beacon node fallback configuration
+    config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::from_vec(
+        &cli_args.external_apis.beacon_nodes_sync_tolerances,
+    )?;
+
+    if let Some(mut broadcast_topics) = cli_args.external_apis.broadcast.clone() {
+        broadcast_topics.retain(|topic| *topic != ApiTopic::None);
+        config.broadcast_topics = broadcast_topics;
+    }
+
     // MEV options
-    config.builder_proposals = cli_args.payload_building_options.builder_proposals;
     config.builder_boost_factor = cli_args.payload_building_options.builder_boost_factor;
     config.prefer_builder_proposals = cli_args.payload_building_options.prefer_builder_proposals;
+
+    if cli_args.payload_building_options.builder_proposals {
+        warn!(
+            "The --builder-proposals flag is deprecated and ignored. Validator registrations are \
+             now always created. This flag will be removed in a future release and will error then."
+        );
+    }
 
     config.gas_limit = cli_args.payload_building_options.gas_limit;
 
@@ -247,6 +282,13 @@ pub fn from_cli(cli_args: &Node, global_config: GlobalConfig) -> Result<Config, 
     config.impostor = cli_args.impostor.map(OperatorId);
     config.disable_latency_measurement_service =
         cli_args.network_options.disable_latency_measurement_service;
+
+    // Operator doppelgänger protection
+    config.operator_dg = cli_args.operator_dg;
+    config.operator_dg_wait_epochs = cli_args.operator_dg_wait_epochs;
+
+    // Majority fork protection
+    config.strict_mfp = cli_args.strict_mfp;
 
     // Performance options
     if let Some(max_workers) = cli_args.max_workers {

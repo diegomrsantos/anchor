@@ -3,6 +3,7 @@ use std::{
     num::{NonZeroU8, NonZeroUsize},
     pin::Pin,
     sync::Arc,
+    time::Duration,
 };
 
 use futures::StreamExt;
@@ -10,7 +11,6 @@ use gossipsub::{IdentTopic, PublishError, TopicHash};
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
     core::{
-        ConnectedPoint,
         muxing::StreamMuxerBox,
         transport::{Boxed, ListenerId},
     },
@@ -18,6 +18,7 @@ use libp2p::{
     identity::Keypair,
     multiaddr::Protocol,
     swarm::{SwarmEvent, dial_opts::DialOpts},
+    upnp::Event,
 };
 use message_receiver::{MessageReceiver, Outcome};
 use prometheus_client::registry::Registry;
@@ -28,18 +29,15 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
 use types::{ChainSpec, EthSpec};
-use version::version_with_platform;
 
 use crate::{
     Config, Enr,
     behaviour::{AnchorBehaviour, AnchorBehaviourEvent, BehaviourError},
     discovery::{DiscoveredPeers, Discovery, DiscoveryError},
     handshake,
-    handshake::node_info::{NodeInfo, NodeMetadata},
     keypair_utils::load_private_key,
     network::NetworkError::SwarmConfig,
-    peer_manager,
-    peer_manager::{ConnectActions, PeerManager},
+    peer_manager::{self, ConnectActions, PeerManager},
     scoring::topic_score_config::topic_score_params_for_subnet_with_rate,
     transport::build_transport,
 };
@@ -73,12 +71,12 @@ pub struct Network<R: MessageReceiver> {
     subnet_event_receiver: mpsc::Receiver<SubnetEvent>,
     message_rx: mpsc::Receiver<(SubnetId, Vec<u8>)>,
     peer_id: PeerId,
-    node_info: NodeInfo,
     message_receiver: Arc<R>,
     outcome_rx: mpsc::Receiver<Outcome>,
     domain_type: DomainType,
     metrics_registry: Option<Registry>,
     spec: Arc<ChainSpec>,
+    is_dynamic_target_peers: bool,
 }
 
 impl<R: MessageReceiver> Network<R> {
@@ -95,6 +93,10 @@ impl<R: MessageReceiver> Network<R> {
     ) -> Result<Network<R>, Box<NetworkError>> {
         let local_keypair: Keypair = load_private_key(&config.network_dir.key_file());
 
+        // Determine if we should dynamically adjust target_peers when subnets change.
+        // If the user specified a target_peers value, we keep it static. Otherwise, dynamic.
+        let is_dynamic_target_peers = config.target_peers.is_none();
+
         let transport = build_transport(local_keypair.clone(), !config.disable_quic_support)?;
 
         let mut metrics_registry = Registry::default();
@@ -105,16 +107,6 @@ impl<R: MessageReceiver> Network<R> {
                 .map_err(|e| Box::new(NetworkError::Behaviour(e)))?;
 
         let peer_id = local_keypair.public().to_peer_id();
-        let domain_type: String = config.domain_type.into();
-        let node_info = NodeInfo::new(
-            domain_type,
-            Some(NodeMetadata {
-                node_version: version_with_platform(),
-                execution_node: "geth/v1.10.8".to_string(),
-                consensus_node: "lighthouse/v1.5.0".to_string(),
-                subnets: "00000000000000000000000000000000".to_string(),
-            }),
-        );
 
         let mut network = Network {
             swarm: build_swarm(
@@ -127,12 +119,12 @@ impl<R: MessageReceiver> Network<R> {
             subnet_event_receiver,
             message_rx,
             peer_id,
-            node_info,
             message_receiver,
             outcome_rx,
             domain_type: config.domain_type,
             metrics_registry: Some(metrics_registry),
             spec,
+            is_dynamic_target_peers,
         };
 
         info!(%peer_id, "Network starting");
@@ -206,13 +198,10 @@ impl<R: MessageReceiver> Network<R> {
                                 self.on_discovered_peers(peers);
                             }
                             AnchorBehaviourEvent::Handshake(event) => {
-                                if let Some(result) = handshake::handle_event(
-                                    &self.node_info,
-                                    &mut self.swarm.behaviour_mut().handshake,
-                                    event,
-                                ) {
-                                    self.handle_handshake_result(result);
-                                }
+                                self.handle_handshake_result(event);
+                            }
+                            AnchorBehaviourEvent::Upnp(upnp_event) => {
+                                self.on_upnp_event(upnp_event);
                             }
                             AnchorBehaviourEvent::PeerManager(peer_manager::Event::Heartbeat(heartbeat)) => {
                                 if let Some(actions) = heartbeat.connect_actions {
@@ -221,6 +210,28 @@ impl<R: MessageReceiver> Network<R> {
 
                                 if heartbeat.check_peer_scores {
                                     self.check_block_and_prune_peers_by_score();
+                                }
+
+                                // Trigger periodic subnet-aware peer discovery if below target
+                                let connected_peers = self.swarm.behaviour().peer_manager.connected_peers();
+                                let target_peers = self.swarm.behaviour().peer_manager.target_peers();
+                                if connected_peers < target_peers {
+                                    let needed_subnets: Vec<_> = self.swarm.behaviour()
+                                        .peer_manager
+                                        .needed_subnets()
+                                        .iter()
+                                        .copied()
+                                        .collect();
+
+                                    if !needed_subnets.is_empty() {
+                                        debug!(
+                                            connected_peers,
+                                            target_peers,
+                                            subnets = ?needed_subnets,
+                                            "Below target peer count, triggering subnet-aware peer discovery"
+                                        );
+                                        self.swarm.behaviour_mut().discovery.start_subnet_query(needed_subnets);
+                                    }
                                 }
 
                                 // Disconnect peers that no longer subscribe to any needed subnets
@@ -238,19 +249,21 @@ impl<R: MessageReceiver> Network<R> {
                                 trace!(event = ?behaviour_event, "Unhandled behaviour event");
                             }
                         },
-                        SwarmEvent::ConnectionEstablished {
-                            peer_id,
-                            endpoint: ConnectedPoint::Dialer { .. },
-                            ..
-                        } => {
-                            handshake::initiate(
-                                    &self.node_info,
-                                &mut self.swarm.behaviour_mut().handshake,
-                                peer_id
-                            );
-                        },
                         SwarmEvent::NewListenAddr { listener_id, address } => {
                             self.on_new_listen_addr(listener_id, address);
+                        },
+                        SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                            debug!(?peer_id, ?error, "Outgoing connection error");
+                        },
+                        SwarmEvent::IncomingConnectionError { error, send_back_addr, .. } => {
+                            debug!(?send_back_addr, ?error, "Incoming connection error");
+                        },
+                        SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
+                            if cause.is_some() {
+                                debug!(?peer_id, ?cause, "Connection closed with error");
+                            } else {
+                                trace!(?peer_id, "Connection closed");
+                            }
                         },
                         _ => {
                             trace!(event = ?swarm_message, "Unhandled swarm event");
@@ -368,7 +381,6 @@ impl<R: MessageReceiver> Network<R> {
     }
 
     fn on_discovered_peers(&mut self, peers: Vec<Enr>) {
-        debug!(peers =  ?peers, "Peers discovered");
         let manager = self.peer_manager();
         // need to collect to avoid double borrow
         let to_dial = peers
@@ -429,6 +441,7 @@ impl<R: MessageReceiver> Network<R> {
     }
 
     fn on_subnet_tracker_event<E: EthSpec>(&mut self, event: SubnetEvent) {
+        let is_dynamic_target_peers = self.is_dynamic_target_peers;
         let (subnet, subscribed) = match event {
             SubnetEvent::Join(subnet, message_rate_opt) => {
                 let topic = subnet_to_topic(subnet);
@@ -447,13 +460,18 @@ impl<R: MessageReceiver> Network<R> {
                     );
                 }
 
-                let actions = self.peer_manager().join_subnet(subnet);
+                let actions = self
+                    .peer_manager()
+                    .join_subnet(subnet, is_dynamic_target_peers);
                 self.handle_connect_actions(actions);
+
                 (subnet, true)
             }
             SubnetEvent::Leave(subnet) => {
                 self.gossipsub().unsubscribe(&subnet_to_topic(subnet));
-                self.peer_manager().leave_subnet(subnet);
+                self.peer_manager()
+                    .leave_subnet(subnet, is_dynamic_target_peers);
+
                 (subnet, false)
             }
             SubnetEvent::RateUpdate(subnet, message_rate) => {
@@ -474,10 +492,62 @@ impl<R: MessageReceiver> Network<R> {
 
         // update enr and metadata to new state
         self.discovery().set_subscribed(subnet, subscribed);
-        if let Some(metadata) = &mut self.node_info.metadata
-            && let Err(err) = metadata.set_subscribed(subnet, subscribed)
-        {
-            error!(?err, "unable to update node info");
+        if let Some(metadata) = self.handshake().node_metadata_mut() {
+            match metadata.set_subscribed(subnet, subscribed) {
+                Ok(()) => {
+                    info!(
+                        subnet = *subnet,
+                        subscribed = subscribed,
+                        subnets_bitfield = %metadata.subnets,
+                        "Updated node_info metadata subnet bitfield"
+                    );
+                }
+                Err(err) => {
+                    error!(?err, "unable to update node info");
+                }
+            }
+        }
+    }
+
+    fn on_upnp_event(&mut self, event: Event) {
+        match event {
+            libp2p::upnp::Event::NewExternalAddr(addr) => {
+                info!(%addr, "UPnP route established");
+                let mut iter = addr.iter();
+                let is_ipv6 = {
+                    let addr = iter.next();
+                    matches!(addr, Some(Protocol::Ip6(_)))
+                };
+                match iter.next() {
+                    Some(Protocol::Udp(udp_port)) => match iter.next() {
+                        Some(Protocol::QuicV1) => {
+                            if let Err(e) =
+                                self.discovery().try_update_port(false, is_ipv6, udp_port)
+                            {
+                                warn!(error = e, "Failed to update ENR");
+                            }
+                        }
+                        _ => {
+                            trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                        }
+                    },
+                    Some(Protocol::Tcp(tcp_port)) => {
+                        if let Err(e) = self.discovery().try_update_port(true, is_ipv6, tcp_port) {
+                            warn!(error = e, "Failed to update ENR");
+                        }
+                    }
+                    _ => {
+                        trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                    }
+                }
+            }
+            libp2p::upnp::Event::ExpiredExternalAddr(addr) => {
+                info!(%addr, "UPnP route expired");
+            }
+            libp2p::upnp::Event::GatewayNotFound => info!("UPnP not available."),
+            libp2p::upnp::Event::NonRoutableGateway => {
+                info!("UPnP is available but gateway is not exposed to public network")
+            }
         }
     }
 
@@ -487,6 +557,10 @@ impl<R: MessageReceiver> Network<R> {
 
     fn gossipsub(&mut self) -> &mut gossipsub::Behaviour {
         &mut self.swarm.behaviour_mut().gossipsub
+    }
+
+    fn handshake(&mut self) -> &mut handshake::Behaviour {
+        &mut self.swarm.behaviour_mut().handshake
     }
 
     fn discovery(&mut self) -> &mut Discovery {
@@ -505,17 +579,51 @@ impl<R: MessageReceiver> Network<R> {
         }
     }
 
-    fn handle_handshake_result(&mut self, result: Result<handshake::Completed, handshake::Failed>) {
-        match result {
-            Ok(handshake::Completed {
+    fn handle_handshake_result(&mut self, event: handshake::Event) {
+        match event {
+            handshake::Event::Completed {
                 peer_id,
                 their_info,
-            }) => {
-                debug!(%peer_id, ?their_info, "Handshake completed");
-                // Update peer store with their_info
+            } => {
+                // Record successful handshake
+                if let Ok(counter) = crate::metrics::HANDSHAKE_SUCCESSFUL.as_ref() {
+                    counter.inc();
+                }
+
+                if let Some(metadata) = their_info.metadata {
+                    self.peer_manager()
+                        .handle_handshake_completed(peer_id, metadata.node_version.clone());
+                }
             }
-            Err(handshake::Failed { peer_id, error }) => {
-                debug!(%peer_id, ?error, "Handshake failed");
+            handshake::Event::Failed { peer_id, error } => {
+                // Determine failure reason for metrics
+                let failure_reason = match error.as_ref() {
+                    handshake::Error::NetworkMismatch { .. } => "network_mismatch",
+                    handshake::Error::NodeInfo(_) => "nodeinfo_error",
+                    handshake::Error::Inbound(_) => "inbound_failure",
+                    handshake::Error::Outbound(outbound_err) => match outbound_err {
+                        libp2p::request_response::OutboundFailure::DialFailure => {
+                            "outbound_dial_failure"
+                        }
+                        libp2p::request_response::OutboundFailure::Timeout => "outbound_timeout",
+                        libp2p::request_response::OutboundFailure::ConnectionClosed => {
+                            "outbound_connection_closed"
+                        }
+                        libp2p::request_response::OutboundFailure::UnsupportedProtocols => {
+                            "outbound_unsupported_protocols"
+                        }
+                        libp2p::request_response::OutboundFailure::Io(_) => "outbound_io_error",
+                    },
+                };
+
+                // Record failed handshake with reason
+                if let Ok(counter_vec) = crate::metrics::HANDSHAKE_FAILED.as_ref()
+                    && let Ok(counter) = counter_vec.get_metric_with_label_values(&[failure_reason])
+                {
+                    counter.inc();
+                }
+
+                debug!(%peer_id, ?error, reason = failure_reason, "Handshake failed");
 
                 // Disconnect the peer on handshake failure
                 self.disconnect_peer(&peer_id, "Handshake failed");
@@ -573,8 +681,24 @@ impl<R: MessageReceiver> Network<R> {
     }
 
     fn dial(&mut self, opts: DialOpts) {
+        let peer_id = opts.get_peer_id();
         if let Err(err) = self.swarm.dial(opts) {
-            debug!(%err, "Failed to dial peer");
+            // Differentiate between expected and unexpected dial failures
+            //
+            // PeerCondition::NotDialing causes DialPeerConditionFalse when we try to dial
+            // a peer we're already connected to or dialing. This is expected and benign,
+            // so we log at TRACE level to reduce noise.
+            //
+            // Other errors (unreachable addresses, transport failures, etc.) are logged
+            // at DEBUG level since they indicate actual problems.
+            match &err {
+                libp2p::swarm::DialError::DialPeerConditionFalse(_) => {
+                    trace!(%err, "Dial skipped due to peer condition");
+                }
+                _ => {
+                    debug!(%err, ?peer_id, "Failed to dial peer");
+                }
+            }
         }
     }
 
@@ -609,7 +733,14 @@ fn build_swarm(
     let swarm_config = libp2p::swarm::Config::with_executor(Executor(executor))
         .with_notify_handler_buffer_size(notify_handler_buffer_size)
         .with_per_connection_event_buffer_size(4)
-        .with_dial_concurrency_factor(dial_concurrency_factor);
+        .with_dial_concurrency_factor(dial_concurrency_factor)
+        // Set a non-zero idle connection timeout to allow time for handshake completion
+        //
+        // libp2p needs time to complete the SSV handshake protocol after connection
+        // establishment. 30 seconds provides sufficient time for this flow while still
+        // cleaning up truly idle connections. This follows guidance from rust-libp2p
+        // maintainers to always set a non-zero idle timeout.
+        .with_idle_connection_timeout(Duration::from_secs(30));
 
     let swarm = SwarmBuilder::with_existing_identity(local_keypair)
         .with_tokio()

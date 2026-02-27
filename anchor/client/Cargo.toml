@@ -1,6 +1,6 @@
 [package]
 name = "client"
-version = "0.3.1"
+version = "1.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io"]
 edition = { workspace = true }
 
@@ -29,10 +29,12 @@ logging = { workspace = true }
 message_receiver = { workspace = true }
 message_sender = { workspace = true }
 message_validator = { workspace = true }
+metrics = { workspace = true }
 multiaddr = { workspace = true }
 network = { workspace = true }
 network_utils = { workspace = true }
 openssl = { workspace = true }
+operator_doppelganger = { workspace = true }
 operator_key = { workspace = true }
 parking_lot = { workspace = true }
 processor = { workspace = true }
