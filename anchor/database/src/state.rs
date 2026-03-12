@@ -19,6 +19,13 @@ use crate::{
     sql_operations,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessedEventCursor {
+    pub block_number: u64,
+    pub transaction_index: u64,
+    pub log_index: u64,
+}
+
 // Container to hold all network state
 #[derive(Debug)]
 pub struct NetworkState {
@@ -37,6 +44,7 @@ impl NetworkState {
 
         // Get the last processed block from the database
         let last_processed_block = Self::get_last_processed_block_from_db(&conn)?;
+        let last_processed_event = Self::get_last_processed_event_from_db(&conn)?;
 
         // Get number of joined operators from the database
         let max_operator_id_seen = Self::get_max_operator_id_seen_from_db(&conn)?;
@@ -61,6 +69,8 @@ impl NetworkState {
         let share_map = id.map(|id| Self::fetch_shares(&conn, id)).transpose()?;
         // 5) Owner -> Nonce (u16)
         let nonces = Self::fetch_nonces(&conn)?;
+        // 6) Owner -> Fee recipient
+        let fee_recipients = Self::fetch_fee_recipients(&conn)?;
 
         // Second phase: Populate all in memory stores with data;
         let mut shares_multi: ShareMultiIndexMap = MultiIndexMap::new();
@@ -69,12 +79,14 @@ impl NetworkState {
         let single_state = SingleState {
             id,
             last_processed_block,
+            last_processed_event,
             operators,
             clusters: share_map
                 .as_ref()
                 .map(|m| m.keys().copied().collect())
                 .unwrap_or_default(),
             nonces,
+            fee_recipients,
             max_operator_id_seen,
         };
 
@@ -143,6 +155,36 @@ impl NetworkState {
     fn get_max_operator_id_seen_from_db(conn: &PoolConn) -> Result<Option<u64>, DatabaseError> {
         conn.prepare_cached(sql_operations::GET_MAX_OPERATOR_ID_SEEN)?
             .query_row(params![], |row| row.get(0))
+            .map_err(DatabaseError::from)
+    }
+
+    fn get_last_processed_event_from_db(
+        conn: &PoolConn,
+    ) -> Result<Option<ProcessedEventCursor>, DatabaseError> {
+        conn.prepare_cached(sql_operations::GET_PROCESSED_EVENT_CURSOR)?
+            .query_row(params![], |row| {
+                let block_number = row.get::<_, Option<u64>>(0)?;
+                let transaction_index = row.get::<_, Option<u64>>(1)?;
+                let log_index = row.get::<_, Option<u64>>(2)?;
+
+                Ok(match (block_number, transaction_index, log_index) {
+                    (Some(block_number), Some(transaction_index), Some(log_index)) => {
+                        Some(ProcessedEventCursor {
+                            block_number,
+                            transaction_index,
+                            log_index,
+                        })
+                    }
+                    (None, None, None) => None,
+                    _ => {
+                        return Err(SqlError::InvalidColumnType(
+                            0,
+                            "cursor_block_number".to_string(),
+                            Type::Null,
+                        ));
+                    }
+                })
+            })
             .map_err(DatabaseError::from)
     }
 
@@ -270,6 +312,25 @@ impl NetworkState {
         nonces.collect()
     }
 
+    fn fetch_fee_recipients(conn: &PoolConn) -> Result<HashMap<Address, Address>, DatabaseError> {
+        let mut stmt = conn.prepare(sql_operations::GET_ALL_FEE_RECIPIENTS)?;
+        let fee_recipients = stmt
+            .query_map([], |row| {
+                let owner_str = row.get::<_, String>(0)?;
+                let owner = Address::from_str(&owner_str)
+                    .map_err(|e| SqlError::FromSqlConversionFailure(0, Type::Text, Box::new(e)))?;
+
+                let recipient_str = row.get::<_, String>(1)?;
+                let recipient = Address::from_str(&recipient_str)
+                    .map_err(|e| SqlError::FromSqlConversionFailure(1, Type::Text, Box::new(e)))?;
+
+                Ok((owner, recipient))
+            })?
+            .map(|result| result.map_err(DatabaseError::from));
+
+        fee_recipients.collect()
+    }
+
     fn get_cluster_members(&self, committee_id: &CommitteeId) -> Option<IndexSet<OperatorId>> {
         self.multi_state
             .clusters
@@ -352,8 +413,31 @@ impl NetworkState {
         self.single_state.last_processed_block
     }
 
+    pub fn get_last_processed_event(&self) -> Option<ProcessedEventCursor> {
+        self.single_state.last_processed_event
+    }
+
+    pub fn next_block_to_fetch(&self, deployment_block: u64) -> u64 {
+        self.single_state
+            .last_processed_event
+            .map(|cursor| cursor.block_number)
+            .unwrap_or_else(|| self.single_state.last_processed_block.saturating_add(1))
+            .max(deployment_block)
+    }
+
     pub fn get_max_operator_id_seen(&self) -> Option<u64> {
         self.single_state.max_operator_id_seen
+    }
+
+    pub fn get_next_nonce(&self, owner: &Address) -> u16 {
+        self.single_state
+            .nonces
+            .get(owner)
+            .map_or(0, |nonce| nonce.saturating_add(1))
+    }
+
+    pub fn fee_recipient_for_owner(&self, owner: &Address) -> Option<Address> {
+        self.single_state.fee_recipients.get(owner).copied()
     }
 
     pub fn get_committee_info_by_committee_id(

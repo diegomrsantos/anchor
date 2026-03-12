@@ -33,8 +33,8 @@ mod tests {
         let metadata = queries::get_metadata(&conn).expect("Failed to get metadata");
 
         assert_eq!(
-            metadata.schema_version, 3,
-            "Initial schema version should be 3"
+            metadata.schema_version, 4,
+            "Initial schema version should be 4"
         );
         assert_eq!(
             metadata.network_name, TEST_NETWORK_1,
@@ -171,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn test_migration_v1_to_v3() {
+    fn test_migration_v1_to_v4() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
 
@@ -195,8 +195,8 @@ mod tests {
             let conn = Connection::open(&db_path).expect("Failed to open database");
             let metadata = queries::get_metadata(&conn).expect("Failed to get metadata");
             assert_eq!(
-                metadata.schema_version, 3,
-                "Should be upgraded to version 3"
+                metadata.schema_version, 4,
+                "Should be upgraded to version 4"
             );
 
             // Verify the network_name column was set
@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn test_migration_v2_to_v3() {
+    fn test_migration_v2_to_v4() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
 
@@ -243,8 +243,8 @@ mod tests {
             let conn = Connection::open(&db_path).expect("Failed to open database");
             let metadata = queries::get_metadata(&conn).expect("Failed to get metadata");
             assert_eq!(
-                metadata.schema_version, 3,
-                "Should be upgraded to version 3"
+                metadata.schema_version, 4,
+                "Should be upgraded to version 4"
             );
 
             // Verify the network_name column was set
