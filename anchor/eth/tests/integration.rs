@@ -2,6 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use alloy::primitives::{Address, Bytes};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use bls::SecretKey;
 use database::{ProcessedEventCursor, test_utils::generators};
 use ssv_types::*;
 
@@ -73,6 +74,86 @@ async fn test_validator_added_event_processing() {
             panic!("Validator should have been queued for index sync");
         }
     }
+}
+
+#[tokio::test]
+async fn test_duplicate_validator_added_is_skipped() {
+    setup_tracing();
+
+    let mut test = ProcessorFixture::new_empty();
+    let owner = Address::from_str(TEST_CLUSTER_OWNER).expect("Invalid address");
+
+    let operator_ids = vec![1u64, 2, 3, 4];
+    let mut operator_logs = Vec::new();
+    for (index, operator_id) in operator_ids.iter().copied().enumerate() {
+        let mut log = create_operator_added_log(
+            operator_id,
+            Address::random(),
+            create_valid_rsa_public_key_bytes(),
+            1000,
+        );
+        log.block_number = Some(100);
+        log.log_index = Some(index as u64);
+        operator_logs.push(log);
+    }
+
+    test.processor
+        .process_logs(operator_logs, true, 100)
+        .expect("Operator setup should succeed");
+
+    let validator_secret_key = SecretKey::random();
+    let (first_shares, validator_pubkey) = create_valid_shares_data_for_validator_and_owner_nonce(
+        &operator_ids,
+        owner,
+        0,
+        &validator_secret_key,
+    );
+    let mut first_log = create_validator_added_log(
+        owner,
+        operator_ids.clone(),
+        Bytes::from(validator_pubkey.serialize().to_vec()),
+        first_shares,
+    );
+    first_log.block_number = Some(101);
+    first_log.log_index = Some(0);
+
+    test.processor
+        .process_logs(vec![first_log], true, 101)
+        .expect("Initial validator addition should succeed");
+
+    let queued_pubkey = test
+        .index_sync_rx
+        .recv()
+        .await
+        .expect("Validator should be queued for index sync");
+    assert_eq!(queued_pubkey, validator_pubkey);
+
+    let (duplicate_shares, _) = create_valid_shares_data_for_validator_and_owner_nonce(
+        &operator_ids,
+        owner,
+        1,
+        &validator_secret_key,
+    );
+    let mut duplicate_log = create_validator_added_log(
+        owner,
+        operator_ids,
+        Bytes::from(validator_pubkey.serialize().to_vec()),
+        duplicate_shares,
+    );
+    duplicate_log.block_number = Some(102);
+    duplicate_log.log_index = Some(0);
+
+    test.processor
+        .process_logs(vec![duplicate_log], true, 102)
+        .expect("Duplicate validator addition should be skipped");
+
+    assert_eq!(test.processor.db.state().metadata().length(), 1);
+    assert_eq!(test.processor.db.state().get_last_processed_block(), 102);
+    assert_eq!(test.processor.db.state().get_next_nonce(&owner), 2);
+    assert!(
+        test.index_sync_rx.try_recv().is_err(),
+        "Duplicate validator should not be queued for index sync again"
+    );
 }
 
 /// Test processing multiple events in a single batch

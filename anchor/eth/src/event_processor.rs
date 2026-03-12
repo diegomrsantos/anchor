@@ -508,6 +508,20 @@ impl EventProcessor {
             Ok(value) => value,
             Err(err) => return skip_with_nonce(err),
         };
+
+        // Duplicate ValidatorAdded logs still consume the owner nonce on-chain. Treat them as
+        // malformed input to skip instead of letting the SQL unique constraint abort sync.
+        let validator_exists = self
+            .db
+            .state()
+            .metadata()
+            .get_by(&validator_pubkey)
+            .is_some();
+        if validator_exists {
+            return skip_with_nonce(ExecutionError::Duplicate(format!(
+                "Validator with public key {validator_pubkey} already exists in database"
+            )));
+        }
         let cluster_id = compute_cluster_id(owner, &operatorIds);
         let operator_ids: Vec<_> = operatorIds.into_iter().map(OperatorId).collect();
 
@@ -679,7 +693,6 @@ impl EventProcessor {
             )));
         }
         drop(state);
-
         // Remove the validator and all corresponding cluster data
         self.db
             .commit_validator_removed(validator_pubkey, cursor)
@@ -984,9 +997,9 @@ impl EventProcessor {
         computed_cluster_id: &ClusterId,
     ) -> Result<(), ExecutionError> {
         // Get validator's metadata from the database
+        // Get the cluster for this validator to access owner information
         let state = self.db.state();
 
-        // Get the cluster for this validator to access owner information
         let cluster = match state.clusters().get_by(validator_pubkey) {
             Some(cluster) => cluster,
             None => {
