@@ -207,6 +207,13 @@ impl NetworkDatabase {
         self.state.borrow()
     }
 
+    /// Execute a short read against the latest committed state without letting the underlying
+    /// `watch::Ref` escape into caller logic that may later publish another update.
+    pub fn with_state<R>(&self, f: impl FnOnce(&NetworkState) -> R) -> R {
+        let state = self.state.borrow();
+        f(&state)
+    }
+
     pub fn watch(&self) -> Receiver<NetworkState> {
         self.state.subscribe()
     }
