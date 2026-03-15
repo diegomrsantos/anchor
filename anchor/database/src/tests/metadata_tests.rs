@@ -255,6 +255,51 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_migration_v3_to_v4() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+
+        // Create a v3 database (with network_name but without cursor columns)
+        create_v3_database(&db_path, TEST_NETWORK_1);
+
+        // Verify it's version 3
+        {
+            let conn = Connection::open(&db_path).expect("Failed to open database");
+            let version: u64 = conn
+                .query_row("SELECT schema_version FROM metadata", [], |row| row.get(0))
+                .expect("Failed to get schema version");
+            assert_eq!(version, 3, "Should start at version 3");
+        }
+
+        // Run migration
+        schema::ensure_up_to_date(&db_path, TEST_NETWORK_1).expect("Migration should succeed");
+
+        // Verify migration succeeded
+        {
+            let conn = Connection::open(&db_path).expect("Failed to open database");
+            let metadata = queries::get_metadata(&conn).expect("Failed to get metadata");
+            assert_eq!(
+                metadata.schema_version, 4,
+                "Should be upgraded to version 4"
+            );
+
+            // Verify cursor columns exist and are NULL
+            let cursor: (Option<u64>, Option<u64>, Option<u64>) = conn
+                .query_row(
+                    "SELECT cursor_block_number, cursor_transaction_index, cursor_log_index FROM metadata",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .expect("Failed to query cursor columns");
+            assert_eq!(
+                cursor,
+                (None, None, None),
+                "Cursor columns should be NULL after migration"
+            );
+        }
+    }
+
     // Helper functions for creating test databases
     fn create_v1_database(db_path: &PathBuf) {
         let conn = Connection::open(db_path).expect("Failed to create v1 database");
@@ -293,6 +338,30 @@ mod tests {
 
         conn.execute("INSERT INTO metadata (domain_type) VALUES (0)", [])
             .expect("Failed to insert v2 metadata");
+    }
+
+    fn create_v3_database(db_path: &PathBuf, network_name: &str) {
+        let conn = Connection::open(db_path).expect("Failed to create v3 database");
+
+        // Create metadata table as it was in version 3 (with network_name but without cursor
+        // columns)
+        conn.execute(
+            "CREATE TABLE metadata (
+                schema_version INTEGER NOT NULL DEFAULT 3,
+                domain_type INTEGER NOT NULL,
+                network_name TEXT,
+                block_number INTEGER NOT NULL DEFAULT 0 CHECK (block_number >= 0),
+                max_operator_id_seen INTEGER DEFAULT 0
+            )",
+            [],
+        )
+        .expect("Failed to create v3 metadata table");
+
+        conn.execute(
+            "INSERT INTO metadata (domain_type, network_name) VALUES (0, ?1)",
+            [network_name],
+        )
+        .expect("Failed to insert v3 metadata");
     }
 
     fn create_legacy_database(db_path: &PathBuf) {

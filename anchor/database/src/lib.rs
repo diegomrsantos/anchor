@@ -306,6 +306,11 @@ impl NetworkDatabase {
         });
     }
 
+    /// Atomically commit a database write and then update in-memory state.
+    ///
+    /// If `notify` is `true`, `watch` subscribers are notified of the state change.
+    /// Use `false` for internal bookkeeping (nonce bumps, cursor-only advances) that
+    /// does not change observable validator/operator state.
     fn commit_db_update(
         &self,
         progress: ProgressUpdate,
