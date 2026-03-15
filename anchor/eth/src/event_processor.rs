@@ -380,6 +380,17 @@ impl EventProcessor {
             )));
         }
 
+        let skip_with_seen_operator = |err| {
+            self.db
+                .commit_seen_operator_id(operatorId, cursor)
+                .map_err(|e| {
+                    EventActionError::Fatal(ExecutionError::Database(format!(
+                        "Failed to persist max seen operator id: {e}"
+                    )))
+                })?;
+            Err(EventActionError::SkippableCommitted(err))
+        };
+
         let data = publicKey.as_ref();
 
         // If the data is 704 bytes, remove the ssv encoding. Else, just parse the key
@@ -395,29 +406,37 @@ impl EventProcessor {
         };
 
         // Construct the Operator and insert it into the database
-        let operator = Operator::new(data, operator_id, owner).map_err(|e| {
-            debug!(
-                operator_pubkey = ?publicKey,
-                operator_id = ?operator_id,
-                error = %e,
-                "Failed to construct operator"
-            );
-            EventActionError::Skippable(ExecutionError::InvalidEvent(format!(
-                "Failed to construct operator: {e}"
-            )))
-        })?;
-        self.db
-            .commit_operator_added(&operator, operatorId, cursor)
-            .map_err(|e| {
+        let operator = match Operator::new(data, operator_id, owner) {
+            Ok(operator) => operator,
+            Err(e) => {
                 debug!(
+                    operator_pubkey = ?publicKey,
                     operator_id = ?operator_id,
                     error = %e,
-                    "Failed to insert operator into database"
+                    "Failed to construct operator"
                 );
-                EventActionError::Fatal(ExecutionError::Database(format!(
+                return skip_with_seen_operator(ExecutionError::InvalidEvent(format!(
+                    "Failed to construct operator: {e}"
+                )));
+            }
+        };
+        if let Err(e) = self.db.commit_operator_added(&operator, operatorId, cursor) {
+            if e.to_string()
+                .contains("UNIQUE constraint failed: operators.public_key")
+            {
+                return skip_with_seen_operator(ExecutionError::InvalidEvent(format!(
                     "Failed to insert operator into database: {e}"
-                )))
-            })?;
+                )));
+            }
+            debug!(
+                operator_id = ?operator_id,
+                error = %e,
+                "Failed to insert operator into database"
+            );
+            return Err(EventActionError::Fatal(ExecutionError::Database(format!(
+                "Failed to insert operator into database: {e}"
+            ))));
+        }
 
         debug!(
             operator_id = ?operator_id,

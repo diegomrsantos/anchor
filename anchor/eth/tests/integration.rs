@@ -193,6 +193,87 @@ async fn test_multiple_events_processing() {
 }
 
 #[tokio::test]
+async fn test_malformed_operator_still_advances_max_seen() {
+    setup_tracing();
+
+    let test = ProcessorFixture::new_empty();
+
+    let mut first_log = create_operator_added_log(
+        1,
+        Address::random(),
+        create_valid_rsa_public_key_bytes(),
+        1000,
+    );
+    first_log.log_index = Some(0);
+
+    let mut malformed_log = create_operator_added_log(
+        2,
+        Address::random(),
+        Bytes::from_static(b"not-base64"),
+        1000,
+    );
+    malformed_log.log_index = Some(1);
+
+    let mut third_log = create_operator_added_log(
+        3,
+        Address::random(),
+        create_valid_rsa_public_key_bytes(),
+        1000,
+    );
+    third_log.log_index = Some(2);
+
+    test.processor
+        .process_logs(vec![first_log, malformed_log, third_log], true, 12350)
+        .expect("Malformed operator should be skipped without blocking later operator ids");
+
+    verify_operator_stored(&test.processor, OperatorId(1));
+    verify_operator_stored(&test.processor, OperatorId(3));
+    assert!(!test.processor.db.state().operator_exists(&OperatorId(2)));
+    assert_eq!(
+        test.processor.db.state().get_max_operator_id_seen(),
+        Some(3)
+    );
+    assert_eq!(test.processor.db.state().get_last_processed_block(), 12350);
+}
+
+#[tokio::test]
+async fn test_duplicate_operator_pubkey_is_skipped_without_blocking_later_ids() {
+    setup_tracing();
+
+    let test = ProcessorFixture::new_empty();
+    let duplicate_public_key = create_valid_rsa_public_key_bytes();
+
+    let mut first_log =
+        create_operator_added_log(1, Address::random(), duplicate_public_key.clone(), 1000);
+    first_log.log_index = Some(0);
+
+    let mut duplicate_log =
+        create_operator_added_log(2, Address::random(), duplicate_public_key, 1000);
+    duplicate_log.log_index = Some(1);
+
+    let mut third_log = create_operator_added_log(
+        3,
+        Address::random(),
+        create_valid_rsa_public_key_bytes(),
+        1000,
+    );
+    third_log.log_index = Some(2);
+
+    test.processor
+        .process_logs(vec![first_log, duplicate_log, third_log], true, 12351)
+        .expect("Duplicate operator pubkey should be skipped without blocking later operator ids");
+
+    verify_operator_stored(&test.processor, OperatorId(1));
+    verify_operator_stored(&test.processor, OperatorId(3));
+    assert!(!test.processor.db.state().operator_exists(&OperatorId(2)));
+    assert_eq!(
+        test.processor.db.state().get_max_operator_id_seen(),
+        Some(3)
+    );
+    assert_eq!(test.processor.db.state().get_last_processed_block(), 12351);
+}
+
+#[tokio::test]
 async fn test_database_transaction_rollback_on_error() {
     // Setup test fixture with processor
     let test = ProcessorFixture::new_empty();
