@@ -188,7 +188,9 @@ impl ProcessorFixture {
 
     /// Get all operators from the database
     pub fn get_operators(&self) -> Vec<Operator> {
-        self.db.state().get_all_operators()
+        self.db
+            .get_all_operators()
+            .expect("Failed to load operators")
     }
 
     /// Get operator IDs from the database
@@ -207,8 +209,8 @@ pub fn verify_operator_stored(processor: &EventProcessor, operator_id: OperatorI
     // Get the stored operator from memory first (verifies memory accessibility)
     let stored_operator = processor
         .db
-        .state()
         .get_operator(&operator_id)
+        .expect("Failed to load operator")
         .expect("Operator should be stored and accessible");
 
     // Verify operator exists in database using database test utilities

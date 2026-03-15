@@ -14,7 +14,7 @@ use types::{
     test_utils::{SeedableRng, XorShiftRng},
 };
 
-use crate::{NetworkDatabase, multi_index::UniqueIndex};
+use crate::NetworkDatabase;
 
 /// Default number of operators for test clusters
 /// 4 operators allows for QBFT quorum (3) with 1 fault tolerance (f=1, n=3f+1=4)
@@ -487,15 +487,19 @@ pub mod assertions {
         // Verifies that the operator is in memory
         pub fn exists_in_memory(db: &NetworkDatabase, operator: &Operator) {
             let stored_operator = db
-                .state()
                 .get_operator(&operator.id)
+                .expect("Operator lookup should succeed")
                 .expect("Operator should exist");
             data(operator, &stored_operator);
         }
 
         // Verifies that the operator is not in memory
         pub fn exists_not_in_memory(db: &NetworkDatabase, operator: OperatorId) {
-            assert!(!db.state().operator_exists(&operator));
+            assert!(
+                db.get_operator(&operator)
+                    .expect("Operator lookup should succeed")
+                    .is_none()
+            );
         }
 
         // Verify that the operator is in the database
@@ -527,18 +531,18 @@ pub mod assertions {
         }
         // Verifies that the cluster is in memory
         pub fn exists_in_memory(db: &NetworkDatabase, v: &ValidatorMetadata) {
-            let state = db.state();
-            let stored_validator = state
-                .metadata()
-                .get_by(&v.public_key)
+            let stored_validator = db
+                .get_validator_metadata(&v.public_key)
+                .expect("Validator lookup should succeed")
                 .expect("Metadata should exist");
-            data(v, stored_validator);
+            data(v, &stored_validator);
         }
 
         // Verifies that the cluster is not in memory
         pub fn exists_not_in_memory(db: &NetworkDatabase, v: &ValidatorMetadata) {
-            let state = db.state();
-            let stored_validator = state.metadata().get_by(&v.public_key);
+            let stored_validator = db
+                .get_validator_metadata(&v.public_key)
+                .expect("Validator lookup should succeed");
             assert!(stored_validator.is_none());
         }
 
@@ -570,20 +574,18 @@ pub mod assertions {
         }
         // Verifies that the cluster is in memory
         pub fn exists_in_memory(db: &NetworkDatabase, c: &Cluster) {
-            assert!(db.state().member_of_cluster(&c.cluster_id));
-            let state = db.state();
-            let stored_cluster = state
-                .clusters()
-                .get_by(&c.cluster_id)
+            let stored_cluster = db
+                .get_cluster(c.cluster_id)
+                .expect("Cluster lookup should succeed")
                 .expect("Cluster should exist");
-            data(c, stored_cluster)
+            data(c, &stored_cluster)
         }
 
         // Verifies that the cluster is not in memory
         pub fn exists_not_in_memory(db: &NetworkDatabase, cluster_id: ClusterId) {
-            assert!(!db.state().member_of_cluster(&cluster_id));
-            let state = db.state();
-            let stored_cluster = state.clusters().get_by(&cluster_id);
+            let stored_cluster = db
+                .get_cluster(cluster_id)
+                .expect("Cluster lookup should succeed");
             assert!(stored_cluster.is_none());
         }
 
@@ -622,18 +624,18 @@ pub mod assertions {
             validator_pubkey: &PublicKeyBytes,
             s: &Share,
         ) {
-            let state = db.state();
-            let stored_share = state
-                .shares()
-                .get_by(validator_pubkey)
+            let stored_share = db
+                .get_own_share(validator_pubkey)
+                .expect("Share lookup should succeed")
                 .expect("Share should exist");
-            data(s, stored_share);
+            data(s, &stored_share);
         }
 
         // Verifies that a share is not in memory
         pub fn exists_not_in_memory(db: &NetworkDatabase, validator_pubkey: &PublicKeyBytes) {
-            let state = db.state();
-            let stored_share = state.shares().get_by(validator_pubkey);
+            let stored_share = db
+                .get_own_share(validator_pubkey)
+                .expect("Share lookup should succeed");
             assert!(stored_share.is_none());
         }
 

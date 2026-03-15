@@ -3,7 +3,7 @@ use rusqlite::{Transaction, params};
 use ssv_types::{Operator, OperatorId};
 use tracing::trace;
 
-use super::{DatabaseError, NetworkDatabase, PubkeyOrId, sql_operations};
+use super::{DatabaseError, NetworkDatabase, sql_operations};
 
 /// Represents the status of an operator in the database
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,34 +51,6 @@ impl NetworkDatabase {
         Ok(())
     }
 
-    pub(crate) fn apply_insert_operator_state(
-        &self,
-        state: &mut crate::NetworkState,
-        operator: &Operator,
-    ) {
-        let pem_key = operator
-            .rsa_pubkey
-            .public_key_to_pem()
-            .expect("Failed to encode RsaPublicKey");
-
-        if state.single_state.id.is_none() {
-            let keys_match = match &self.operator {
-                PubkeyOrId::Pubkey(pubkey) => {
-                    pem_key == pubkey.public_key_to_pem().unwrap_or_default()
-                }
-                PubkeyOrId::Id(id) => *id == operator.id,
-            };
-            if keys_match {
-                state.single_state.id = Some(operator.id);
-            }
-        }
-
-        state
-            .single_state
-            .operators
-            .insert(operator.id, operator.to_owned());
-    }
-
     pub fn commit_operator_added(
         &self,
         operator: &Operator,
@@ -86,18 +58,10 @@ impl NetworkDatabase {
         cursor: crate::ProcessedEventCursor,
     ) -> Result<(), DatabaseError> {
         let operator = operator.clone();
-        self.commit_db_update(
-            super::ProgressUpdate::Event(cursor),
-            true,
-            |tx| {
-                self.set_max_operator_id_seen_tx(max_operator_id_seen, tx)?;
-                self.insert_operator_tx(&operator, tx)
-            },
-            |state| {
-                state.single_state.max_operator_id_seen = Some(max_operator_id_seen);
-                self.apply_insert_operator_state(state, &operator);
-            },
-        )
+        self.commit_db_update(super::ProgressUpdate::Event(cursor), true, |tx| {
+            self.set_max_operator_id_seen_tx(max_operator_id_seen, tx)?;
+            self.insert_operator_tx(&operator, tx)
+        })
     }
 
     pub fn commit_seen_operator_id(
@@ -105,14 +69,9 @@ impl NetworkDatabase {
         max_operator_id_seen: u64,
         cursor: crate::ProcessedEventCursor,
     ) -> Result<(), DatabaseError> {
-        self.commit_db_update(
-            super::ProgressUpdate::Event(cursor),
-            false,
-            |tx| self.set_max_operator_id_seen_tx(max_operator_id_seen, tx),
-            |state| {
-                state.single_state.max_operator_id_seen = Some(max_operator_id_seen);
-            },
-        )
+        self.commit_db_update(super::ProgressUpdate::Event(cursor), false, |tx| {
+            self.set_max_operator_id_seen_tx(max_operator_id_seen, tx)
+        })
     }
 
     /// Insert a new Operator into the database
@@ -122,7 +81,7 @@ impl NetworkDatabase {
         tx: &Transaction<'_>,
     ) -> Result<(), DatabaseError> {
         // Make sure that this operator does not already exist
-        if self.state().operator_exists(&operator.id) {
+        if self.operator_exists(&operator.id)? {
             return Err(DatabaseError::NotFound(format!(
                 "Operator with id {} already in database",
                 *operator.id
@@ -130,8 +89,6 @@ impl NetworkDatabase {
         }
 
         self.insert_operator_tx(operator, tx)?;
-        self.state
-            .send_modify(|state| self.apply_insert_operator_state(state, operator));
         Ok(())
     }
 
@@ -161,25 +118,14 @@ impl NetworkDatabase {
         Ok(())
     }
 
-    pub(crate) fn apply_delete_operator_state(
-        &self,
-        state: &mut crate::NetworkState,
-        id: OperatorId,
-    ) {
-        state.single_state.operators.remove(&id);
-    }
-
     pub fn commit_operator_removed(
         &self,
         id: OperatorId,
         cursor: crate::ProcessedEventCursor,
     ) -> Result<(), DatabaseError> {
-        self.commit_db_update(
-            super::ProgressUpdate::Event(cursor),
-            true,
-            |tx| self.delete_operator_tx(id, tx),
-            |state| self.apply_delete_operator_state(state, id),
-        )
+        self.commit_db_update(super::ProgressUpdate::Event(cursor), true, |tx| {
+            self.delete_operator_tx(id, tx)
+        })
     }
 
     /// Delete an operator
@@ -189,7 +135,7 @@ impl NetworkDatabase {
         tx: &Transaction<'_>,
     ) -> Result<(), DatabaseError> {
         // Make sure that this operator exists
-        if !self.state().operator_exists(&id) {
+        if !self.operator_exists(&id)? {
             return Err(DatabaseError::NotFound(format!(
                 "Operator with id {} not in database",
                 *id
@@ -197,8 +143,6 @@ impl NetworkDatabase {
         }
 
         self.delete_operator_tx(id, tx)?;
-        self.state
-            .send_modify(|state| self.apply_delete_operator_state(state, id));
         Ok(())
     }
 

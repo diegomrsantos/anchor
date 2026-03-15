@@ -136,7 +136,7 @@ mod tests {
             .expect("Failed to create database");
 
         // Test initial block number
-        let initial_block = db.state().get_last_processed_block();
+        let initial_block = db.get_last_processed_block().unwrap();
         assert_eq!(initial_block, 0, "Initial block should be 0");
 
         // Update block number
@@ -148,7 +148,7 @@ mod tests {
         tx.commit().expect("Failed to commit transaction");
 
         // Verify update
-        let updated_block = db.state().get_last_processed_block();
+        let updated_block = db.get_last_processed_block().unwrap();
         assert_eq!(updated_block, new_block, "Block number should be updated");
     }
 

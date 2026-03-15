@@ -19,7 +19,7 @@ mod database_test {
     fn test_create_database() {
         let fixture = InMemoryTestFixture::new_empty();
         assert!(
-            fixture.db.state().metadata().length() == 0,
+            fixture.db.list_validators().unwrap().is_empty(),
             "Empty database should have no metadata"
         );
     }

@@ -3,12 +3,9 @@ use std::{collections::HashMap, str::FromStr};
 use bls::PublicKeyBytes;
 use rusqlite::{Transaction, params};
 use ssv_types::ValidatorIndex;
-use tracing::debug;
 use types::{Address, Graffiti};
 
-use crate::{
-    DatabaseError, NetworkDatabase, NonUniqueIndex, multi_index::UniqueIndex, sql_operations,
-};
+use crate::{DatabaseError, NetworkDatabase, sql_operations};
 
 /// Implements all validator specific database functionality
 impl NetworkDatabase {
@@ -27,33 +24,15 @@ impl NetworkDatabase {
         Ok(())
     }
 
-    pub(crate) fn apply_update_fee_recipient_state(
-        &self,
-        state: &mut crate::NetworkState,
-        owner: Address,
-        fee_recipient: Address,
-    ) {
-        state
-            .single_state
-            .fee_recipients
-            .insert(owner, fee_recipient);
-        state.multi_state.clusters.modify_all_by(&owner, |cluster| {
-            cluster.fee_recipient = fee_recipient;
-        });
-    }
-
     pub fn commit_fee_recipient_updated(
         &self,
         owner: Address,
         fee_recipient: Address,
         cursor: crate::ProcessedEventCursor,
     ) -> Result<(), DatabaseError> {
-        self.commit_db_update(
-            super::ProgressUpdate::Event(cursor),
-            true,
-            |tx| self.update_fee_recipient_tx(owner, fee_recipient, tx),
-            |state| self.apply_update_fee_recipient_state(state, owner, fee_recipient),
-        )
+        self.commit_db_update(super::ProgressUpdate::Event(cursor), true, |tx| {
+            self.update_fee_recipient_tx(owner, fee_recipient, tx)
+        })
     }
 
     /// Update the fee recipient address for all validators in a cluster
@@ -64,10 +43,6 @@ impl NetworkDatabase {
         tx: &Transaction<'_>,
     ) -> Result<(), DatabaseError> {
         self.update_fee_recipient_tx(owner, fee_recipient, tx)?;
-
-        self.modify_state(|state| {
-            self.apply_update_fee_recipient_state(state, owner, fee_recipient);
-        });
         Ok(())
     }
 
@@ -117,17 +92,6 @@ impl NetworkDatabase {
                 graffiti.0.as_slice(),        // New graffiti
                 validator_pubkey.to_string()  // The public key of the validator
             ])?;
-
-        self.modify_state(|state| {
-            if let Some(validator) = state
-                .multi_state
-                .validator_metadata
-                .get_mut_by(validator_pubkey)
-            {
-                // Update in memory
-                validator.graffiti = graffiti;
-            }
-        });
         Ok(())
     }
 
@@ -136,12 +100,9 @@ impl NetworkDatabase {
         map: HashMap<PublicKeyBytes, ValidatorIndex>,
     ) -> Result<(), DatabaseError> {
         let tx_map = map.clone();
-        self.commit_db_update(
-            super::ProgressUpdate::None,
-            true,
-            |tx| self.set_validator_indices_tx(&tx_map, tx),
-            |state| self.apply_set_validator_indices_state(state, map),
-        )
+        self.commit_db_update(super::ProgressUpdate::None, true, |tx| {
+            self.set_validator_indices_tx(&tx_map, tx)
+        })
     }
 
     pub(crate) fn set_validator_indices_tx(
@@ -158,20 +119,5 @@ impl NetworkDatabase {
         }
 
         Ok(())
-    }
-
-    pub(crate) fn apply_set_validator_indices_state(
-        &self,
-        state: &mut crate::NetworkState,
-        map: HashMap<PublicKeyBytes, ValidatorIndex>,
-    ) {
-        for (public_key, index) in map {
-            if let Some(validator) = state.multi_state.validator_metadata.get_mut_by(&public_key) {
-                // Update in memory
-                validator.index = Some(index);
-            } else {
-                debug!(?public_key, "Tried to update index of unknown validator");
-            }
-        }
     }
 }

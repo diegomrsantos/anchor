@@ -31,6 +31,11 @@ pub const GET_OPERATOR_ID: &str =
 pub const GET_OPERATOR_KEY: &str =
     r#"SELECT public_key FROM operators WHERE operator_id = ?1 AND removed = FALSE"#;
 pub const GET_ALL_OPERATORS: &str = r#"SELECT * FROM operators WHERE removed = FALSE"#;
+pub const GET_OPERATOR_BY_ID: &str = r#"
+    SELECT operator_id, public_key, owner_address
+    FROM operators
+    WHERE operator_id = ?1 AND removed = FALSE
+"#;
 
 // Cluster
 pub const INSERT_CLUSTER: &str = r#"
@@ -64,6 +69,25 @@ pub const GET_CLUSTER_MEMBERS: &str = r#"
     SELECT operator_id
     FROM cluster_members
     WHERE cluster_id = ?1
+    ORDER BY operator_id
+"#;
+pub const GET_ALL_CLUSTER_MEMBERS: &str = r#"
+    SELECT cluster_id, operator_id
+    FROM cluster_members
+    ORDER BY cluster_id, operator_id
+"#;
+pub const GET_CLUSTER_BY_ID: &str = r#"
+    SELECT c.cluster_id, c.owner, o.fee_recipient, c.liquidated
+    FROM clusters c
+    LEFT JOIN owners o ON c.owner = o.owner
+    WHERE c.cluster_id = ?1
+"#;
+pub const GET_CLUSTER_BY_VALIDATOR_PUBKEY: &str = r#"
+    SELECT c.cluster_id, c.owner, o.fee_recipient, c.liquidated
+    FROM clusters c
+    JOIN validators v ON v.cluster_id = c.cluster_id
+    LEFT JOIN owners o ON c.owner = o.owner
+    WHERE v.validator_pubkey = ?1
 "#;
 
 // Validator
@@ -75,6 +99,37 @@ pub const INSERT_VALIDATOR: &str = r#"
 "#;
 pub const DELETE_VALIDATOR: &str = r#"DELETE from validators WHERE validator_pubkey = ?1"#;
 pub const GET_ALL_VALIDATORS: &str = r#"SELECT * FROM validators"#;
+pub const GET_VALIDATOR_BY_PUBKEY: &str = r#"
+    SELECT validator_pubkey, cluster_id, validator_index, graffiti
+    FROM validators
+    WHERE validator_pubkey = ?1
+"#;
+pub const GET_VALIDATOR_PUBKEYS_BY_CLUSTER: &str = r#"
+    SELECT validator_pubkey
+    FROM validators
+    WHERE cluster_id = ?1
+"#;
+pub const GET_VALIDATOR_INDEX: &str = r#"
+    SELECT validator_index
+    FROM validators
+    WHERE validator_pubkey = ?1
+"#;
+pub const GET_VALIDATOR_INDICES: &str = r#"
+    SELECT validator_index
+    FROM validators
+    WHERE validator_index IS NOT NULL
+"#;
+pub const GET_CLUSTER_VALIDATOR_INDICES: &str = r#"
+    SELECT validator_index
+    FROM validators
+    WHERE cluster_id = ?1 AND validator_index IS NOT NULL
+"#;
+pub const GET_VALIDATORS_NEEDING_INDEX: &str = r#"
+    SELECT v.validator_pubkey
+    FROM validators v
+    JOIN clusters c ON c.cluster_id = v.cluster_id
+    WHERE v.validator_index IS NULL AND c.liquidated = 0
+"#;
 
 // Shares
 pub const INSERT_SHARE: &str = r#"
@@ -83,9 +138,33 @@ pub const INSERT_SHARE: &str = r#"
     VALUES
         (?1, ?2, ?3, ?4, ?5)
 "#;
-pub const GET_SHARES: &str = r#"
+pub const SHARE_EXISTS_FOR_OPERATOR_AND_VALIDATOR: &str = r#"
+    SELECT 1
+    FROM shares
+    WHERE validator_pubkey = ?1 AND operator_id = ?2
+    LIMIT 1
+"#;
+pub const GET_OWN_SHARE_BY_VALIDATOR: &str = r#"
     SELECT share_pubkey, encrypted_key, operator_id, cluster_id, validator_pubkey
-    FROM shares WHERE operator_id = ?1
+    FROM shares
+    WHERE validator_pubkey = ?1 AND operator_id = ?2
+    LIMIT 1
+"#;
+pub const GET_ACTIVE_VOTING_PUBKEYS: &str = r#"
+    SELECT s.validator_pubkey
+    FROM shares s
+    JOIN clusters c ON c.cluster_id = s.cluster_id
+    WHERE s.operator_id = ?1 AND c.liquidated = 0
+"#;
+pub const COUNT_OWN_SHARES: &str = r#"
+    SELECT COUNT(*)
+    FROM shares
+    WHERE operator_id = ?1
+"#;
+pub const GET_OWN_CLUSTER_IDS: &str = r#"
+    SELECT DISTINCT cluster_id
+    FROM shares
+    WHERE operator_id = ?1
 "#;
 
 // Misc Datta
@@ -94,11 +173,6 @@ pub const INSERT_OR_UPDATE_OWNER_FEE_RECIPIENT: &str = r#"
     ON CONFLICT (owner) DO UPDATE SET fee_recipient = ?2
 "#;
 pub const GET_OWNER_FEE_RECIPIENT: &str = r#"SELECT fee_recipient FROM owners WHERE owner = ?1"#;
-pub const GET_ALL_FEE_RECIPIENTS: &str = r#"
-    SELECT owner, fee_recipient
-    FROM owners
-    WHERE fee_recipient IS NOT NULL
-"#;
 
 pub const SET_GRAFFITI: &str = r#"UPDATE validators SET graffiti = ?1 WHERE validator_pubkey = ?2"#;
 pub const SET_INDEX: &str = r#"
@@ -118,7 +192,6 @@ pub const UPDATE_BLOCK_NUMBER: &str = r#"
 pub const GET_BLOCK_NUMBER: &str = r#"SELECT block_number FROM metadata"#;
 
 // Nonce
-pub const GET_ALL_NONCES: &str = r#"SELECT owner, nonce FROM owners"#;
 pub const GET_NONCE: &str = r#"SELECT nonce FROM owners WHERE owner = ?1"#;
 pub const BUMP_NONCE: &str = r#"
     INSERT INTO owners (owner, nonce) VALUES (?1, 0)

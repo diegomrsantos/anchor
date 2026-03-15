@@ -1,9 +1,9 @@
 use bls::PublicKeyBytes;
-use rusqlite::{Transaction, params};
-use ssv_types::{Cluster, ClusterId, OperatorId, Share, ValidatorMetadata};
+use rusqlite::{OptionalExtension, Transaction, params};
+use ssv_types::{Cluster, ClusterId, Share, ValidatorMetadata};
 use types::Address;
 
-use super::{DatabaseError, NetworkDatabase, NonUniqueIndex, UniqueIndex, sql_operations};
+use super::{DatabaseError, NetworkDatabase, sql_operations};
 
 /// Implements all cluster related functionality on the database
 impl NetworkDatabase {
@@ -44,45 +44,6 @@ impl NetworkDatabase {
         Ok(())
     }
 
-    pub(crate) fn apply_insert_validator_state(
-        &self,
-        state: &mut crate::NetworkState,
-        cluster: &Cluster,
-        validator: &ValidatorMetadata,
-        shares: &[Share],
-    ) {
-        let own_id = state.single_state.id;
-        if let Some(share) = shares
-            .iter()
-            .find(|share| own_id == Some(OperatorId(*share.operator_id)))
-        {
-            state.single_state.clusters.insert(cluster.cluster_id);
-            state.multi_state.shares.insert_or_update(
-                &validator.public_key,
-                &cluster.cluster_id,
-                &cluster.owner,
-                &cluster.committee_id(),
-                share.to_owned(),
-            );
-        }
-
-        state.multi_state.clusters.insert_or_update(
-            &cluster.cluster_id,
-            &validator.public_key,
-            &cluster.owner,
-            &cluster.committee_id(),
-            cluster.to_owned(),
-        );
-
-        state.multi_state.validator_metadata.insert_or_update(
-            &validator.public_key,
-            &cluster.cluster_id,
-            &cluster.owner,
-            &cluster.committee_id(),
-            validator.to_owned(),
-        );
-    }
-
     pub fn commit_validator_added(
         &self,
         cluster: Cluster,
@@ -91,18 +52,10 @@ impl NetworkDatabase {
         cursor: crate::ProcessedEventCursor,
     ) -> Result<(), DatabaseError> {
         let owner = cluster.owner;
-        self.commit_db_update(
-            super::ProgressUpdate::Event(cursor),
-            true,
-            |tx| {
-                self.bump_nonce_tx(&owner, tx)?;
-                self.insert_validator_tx(&cluster, &validator, &shares, tx)
-            },
-            |state| {
-                self.apply_bump_nonce_state(state, &owner);
-                self.apply_insert_validator_state(state, &cluster, &validator, &shares);
-            },
-        )
+        self.commit_db_update(super::ProgressUpdate::Event(cursor), true, |tx| {
+            self.bump_nonce_tx(&owner, tx)?;
+            self.insert_validator_tx(&cluster, &validator, &shares, tx)
+        })
     }
 
     pub fn commit_owner_nonce(
@@ -110,14 +63,9 @@ impl NetworkDatabase {
         owner: Address,
         cursor: crate::ProcessedEventCursor,
     ) -> Result<(), DatabaseError> {
-        self.commit_db_update(
-            super::ProgressUpdate::Event(cursor),
-            false,
-            |tx| self.bump_nonce_tx(&owner, tx),
-            |state| {
-                self.apply_bump_nonce_state(state, &owner);
-            },
-        )
+        self.commit_db_update(super::ProgressUpdate::Event(cursor), false, |tx| {
+            self.bump_nonce_tx(&owner, tx)
+        })
     }
 
     /// Inserts a new validator into the database. A new cluster will be created if this is the
@@ -130,9 +78,6 @@ impl NetworkDatabase {
         tx: &Transaction<'_>,
     ) -> Result<(), DatabaseError> {
         self.insert_validator_tx(&cluster, validator, &shares, tx)?;
-        self.modify_state(|state| {
-            self.apply_insert_validator_state(state, &cluster, validator, &shares);
-        });
 
         Ok(())
     }
@@ -152,29 +97,15 @@ impl NetworkDatabase {
         Ok(())
     }
 
-    pub(crate) fn apply_update_status_state(
-        &self,
-        state: &mut crate::NetworkState,
-        cluster_id: ClusterId,
-        status: bool,
-    ) {
-        if let Some(cluster) = state.multi_state.clusters.get_mut_by(&cluster_id) {
-            cluster.liquidated = status;
-        }
-    }
-
     pub fn commit_cluster_status(
         &self,
         cluster_id: ClusterId,
         status: bool,
         cursor: crate::ProcessedEventCursor,
     ) -> Result<(), DatabaseError> {
-        self.commit_db_update(
-            super::ProgressUpdate::Event(cursor),
-            true,
-            |tx| self.update_status_tx(cluster_id, status, tx),
-            |state| self.apply_update_status_state(state, cluster_id, status),
-        )
+        self.commit_db_update(super::ProgressUpdate::Event(cursor), true, |tx| {
+            self.update_status_tx(cluster_id, status, tx)
+        })
     }
 
     /// Mark the cluster as liquidated or active
@@ -185,7 +116,6 @@ impl NetworkDatabase {
         tx: &Transaction<'_>,
     ) -> Result<(), DatabaseError> {
         self.update_status_tx(cluster_id, status, tx)?;
-        self.modify_state(|state| self.apply_update_status_state(state, cluster_id, status));
 
         Ok(())
     }
@@ -201,41 +131,14 @@ impl NetworkDatabase {
         Ok(())
     }
 
-    pub(crate) fn apply_delete_validator_state(
-        &self,
-        state: &mut crate::NetworkState,
-        validator_pubkey: &PublicKeyBytes,
-    ) {
-        state.multi_state.shares.remove(validator_pubkey);
-        let metadata = state
-            .multi_state
-            .validator_metadata
-            .remove(validator_pubkey)
-            .expect("Data should have existed");
-
-        if state
-            .multi_state
-            .validator_metadata
-            .get_all_by(&metadata.cluster_id)
-            .next()
-            .is_none()
-        {
-            state.multi_state.clusters.remove(&metadata.cluster_id);
-            state.single_state.clusters.remove(&metadata.cluster_id);
-        }
-    }
-
     pub fn commit_validator_removed(
         &self,
         validator_pubkey: PublicKeyBytes,
         cursor: crate::ProcessedEventCursor,
     ) -> Result<(), DatabaseError> {
-        self.commit_db_update(
-            super::ProgressUpdate::Event(cursor),
-            true,
-            |tx| self.delete_validator_tx(&validator_pubkey, tx),
-            |state| self.apply_delete_validator_state(state, &validator_pubkey),
-        )
+        self.commit_db_update(super::ProgressUpdate::Event(cursor), true, |tx| {
+            self.delete_validator_tx(&validator_pubkey, tx)
+        })
     }
 
     /// Delete a validator from a cluster. This will cascade and remove all corresponding share
@@ -247,7 +150,6 @@ impl NetworkDatabase {
         tx: &Transaction<'_>,
     ) -> Result<(), DatabaseError> {
         self.delete_validator_tx(validator_pubkey, tx)?;
-        self.modify_state(|state| self.apply_delete_validator_state(state, validator_pubkey));
 
         Ok(())
     }
@@ -263,23 +165,15 @@ impl NetworkDatabase {
         Ok(())
     }
 
-    pub(crate) fn apply_bump_nonce_state(
+    pub(crate) fn get_nonce(
         &self,
-        state: &mut crate::NetworkState,
         owner: &Address,
-    ) -> u16 {
-        if !state.single_state.nonces.contains_key(owner) {
-            state.single_state.nonces.insert(*owner, 0);
-            0
-        } else {
-            let entry = state
-                .single_state
-                .nonces
-                .get_mut(owner)
-                .expect("This must exist");
-            *entry += 1;
-            *entry
-        }
+        tx: &Transaction<'_>,
+    ) -> Result<Option<u16>, DatabaseError> {
+        tx.prepare_cached(sql_operations::GET_NONCE)?
+            .query_row(params![owner.to_string()], |row| row.get(0))
+            .optional()
+            .map_err(DatabaseError::from)
     }
 
     /// Bump the nonce of the owner
@@ -289,11 +183,6 @@ impl NetworkDatabase {
         tx: &Transaction<'_>,
     ) -> Result<u16, DatabaseError> {
         self.bump_nonce_tx(owner, tx)?;
-
-        let mut nonce = None;
-        self.modify_state(|state| {
-            nonce = Some(self.apply_bump_nonce_state(state, owner));
-        });
-        Ok(nonce.expect("Nonce update should always produce a value"))
+        Ok(self.get_nonce(owner, tx)?.unwrap_or(0))
     }
 }

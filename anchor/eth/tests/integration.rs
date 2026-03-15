@@ -147,9 +147,9 @@ async fn test_duplicate_validator_added_is_skipped() {
         .process_logs(vec![duplicate_log], true, 102)
         .expect("Duplicate validator addition should be skipped");
 
-    assert_eq!(test.processor.db.state().metadata().length(), 1);
-    assert_eq!(test.processor.db.state().get_last_processed_block(), 102);
-    assert_eq!(test.processor.db.state().get_next_nonce(&owner), 2);
+    assert_eq!(test.processor.db.list_validators().unwrap().len(), 1);
+    assert_eq!(test.processor.db.get_last_processed_block().unwrap(), 102);
+    assert_eq!(test.processor.db.get_next_nonce(&owner).unwrap(), 2);
     assert!(
         test.index_sync_rx.try_recv().is_err(),
         "Duplicate validator should not be queued for index sync again"
@@ -188,7 +188,7 @@ async fn test_multiple_events_processing() {
     }
 
     // Verify processed block was updated using proper database API
-    let block_number = test.processor.db.state().get_last_processed_block();
+    let block_number = test.processor.db.get_last_processed_block().unwrap();
     assert_eq!(block_number, 12350, "Block number should be updated");
 }
 
@@ -228,12 +228,12 @@ async fn test_malformed_operator_still_advances_max_seen() {
 
     verify_operator_stored(&test.processor, OperatorId(1));
     verify_operator_stored(&test.processor, OperatorId(3));
-    assert!(!test.processor.db.state().operator_exists(&OperatorId(2)));
+    assert!(!test.processor.db.operator_exists(&OperatorId(2)).unwrap());
     assert_eq!(
-        test.processor.db.state().get_max_operator_id_seen(),
+        test.processor.db.get_max_operator_id_seen().unwrap(),
         Some(3)
     );
-    assert_eq!(test.processor.db.state().get_last_processed_block(), 12350);
+    assert_eq!(test.processor.db.get_last_processed_block().unwrap(), 12350);
 }
 
 #[tokio::test]
@@ -265,12 +265,12 @@ async fn test_duplicate_operator_pubkey_is_skipped_without_blocking_later_ids() 
 
     verify_operator_stored(&test.processor, OperatorId(1));
     verify_operator_stored(&test.processor, OperatorId(3));
-    assert!(!test.processor.db.state().operator_exists(&OperatorId(2)));
+    assert!(!test.processor.db.operator_exists(&OperatorId(2)).unwrap());
     assert_eq!(
-        test.processor.db.state().get_max_operator_id_seen(),
+        test.processor.db.get_max_operator_id_seen().unwrap(),
         Some(3)
     );
-    assert_eq!(test.processor.db.state().get_last_processed_block(), 12351);
+    assert_eq!(test.processor.db.get_last_processed_block().unwrap(), 12351);
 }
 
 #[tokio::test]
@@ -353,7 +353,7 @@ async fn test_resume_skips_already_processed_logs_in_same_block() {
         .expect("Failed to seed committed operator state");
 
     assert_eq!(
-        test.processor.db.state().get_last_processed_event(),
+        test.processor.db.get_last_processed_event().unwrap(),
         Some(cursor)
     );
 
@@ -363,8 +363,8 @@ async fn test_resume_skips_already_processed_logs_in_same_block() {
 
     verify_operator_stored(&test.processor, OperatorId(first_operator_id));
     verify_operator_stored(&test.processor, OperatorId(second_operator_id));
-    assert_eq!(test.processor.db.state().get_last_processed_block(), 12345);
-    assert_eq!(test.processor.db.state().get_last_processed_event(), None);
+    assert_eq!(test.processor.db.get_last_processed_block().unwrap(), 12345);
+    assert_eq!(test.processor.db.get_last_processed_event().unwrap(), None);
 }
 
 #[tokio::test]

@@ -5,7 +5,6 @@ mod state_database_tests {
 
     use crate::{
         NetworkDatabase, ProcessedEventCursor,
-        multi_index::UniqueIndex,
         test_utils::{FileTestFixture, InMemoryTestFixture, TEST_NETWORK, assertions, generators},
     };
 
@@ -70,11 +69,15 @@ mod state_database_tests {
             NetworkDatabase::new(&path, &pubkey, TEST_NETWORK).expect("Failed to create database");
 
         // Confirm share data, there should be one share in memory for this operator
-        assert_eq!(fixture.data.db.state().shares().length(), 1);
+        assert_eq!(fixture.data.db.own_share_count().unwrap(), 1);
         let pk = &fixture.validator.public_key;
-        let state = fixture.data.db.state();
-        let share = state.shares().get_by(pk).expect("The share should exist");
-        assertions::share::exists_in_memory(&fixture.data.db, pk, share);
+        let share = fixture
+            .data
+            .db
+            .get_own_share(pk)
+            .unwrap()
+            .expect("The share should exist");
+        assertions::share::exists_in_memory(&fixture.data.db, pk, &share);
     }
 
     #[test]
@@ -112,16 +115,16 @@ mod state_database_tests {
             NetworkDatabase::new(&path, &pubkey, TEST_NETWORK).expect("Failed to create database");
 
         // assert that there are two validators, one cluster, and 2 shares in memory
-        assert_eq!(fixture.data.db.state().metadata().length(), 2);
-        assert_eq!(fixture.data.db.state().shares().length(), 2);
-        assert_eq!(fixture.data.db.state().clusters().length(), 1);
+        assert_eq!(fixture.data.db.list_validators().unwrap().len(), 2);
+        assert_eq!(fixture.data.db.own_share_count().unwrap(), 2);
+        assert_eq!(fixture.data.db.list_committees().unwrap().len(), 1);
     }
 
     #[test]
     // Test that you can update and retrieve a block number
     fn test_block_number() {
         let fixture = InMemoryTestFixture::new();
-        assert_eq!(fixture.db.state().get_last_processed_block(), 0);
+        assert_eq!(fixture.db.get_last_processed_block().unwrap(), 0);
         let mut conn = fixture.db.connection().unwrap();
         let tx = conn.transaction().unwrap();
         fixture
@@ -130,7 +133,7 @@ mod state_database_tests {
             .expect("Failed to update the block number");
         tx.commit().unwrap();
 
-        assert_eq!(fixture.db.state().get_last_processed_block(), 10);
+        assert_eq!(fixture.db.get_last_processed_block().unwrap(), 10);
     }
 
     #[test]
@@ -155,7 +158,7 @@ mod state_database_tests {
 
         fixture.data.db =
             NetworkDatabase::new(&path, &pubkey, TEST_NETWORK).expect("Failed to create database");
-        assert_eq!(fixture.data.db.state().get_last_processed_block(), 10);
+        assert_eq!(fixture.data.db.get_last_processed_block().unwrap(), 10);
     }
 
     #[test]
@@ -174,10 +177,10 @@ mod state_database_tests {
             .expect("Failed to store processed event cursor");
 
         assert_eq!(
-            fixture.data.db.state().get_last_processed_event(),
+            fixture.data.db.get_last_processed_event().unwrap(),
             Some(cursor)
         );
-        assert_eq!(fixture.data.db.state().next_block_to_fetch(0), 10);
+        assert_eq!(fixture.data.db.next_block_to_fetch(0).unwrap(), 10);
 
         let path = fixture.path.clone();
         let pubkey = fixture.pubkey.clone();
@@ -187,18 +190,18 @@ mod state_database_tests {
         fixture.data.db =
             NetworkDatabase::new(&path, &pubkey, TEST_NETWORK).expect("Failed to create database");
         assert_eq!(
-            fixture.data.db.state().get_last_processed_event(),
+            fixture.data.db.get_last_processed_event().unwrap(),
             Some(cursor)
         );
-        assert_eq!(fixture.data.db.state().next_block_to_fetch(0), 10);
+        assert_eq!(fixture.data.db.next_block_to_fetch(0).unwrap(), 10);
 
         fixture
             .data
             .db
             .advance_processed_block(10)
             .expect("Failed to advance processed block");
-        assert_eq!(fixture.data.db.state().get_last_processed_event(), None);
-        assert_eq!(fixture.data.db.state().next_block_to_fetch(0), 11);
+        assert_eq!(fixture.data.db.get_last_processed_event().unwrap(), None);
+        assert_eq!(fixture.data.db.next_block_to_fetch(0).unwrap(), 11);
     }
 
     #[test]
