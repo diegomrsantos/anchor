@@ -1,4 +1,5 @@
 mod manager;
+mod metrics;
 
 use libp2p::{
     PeerId,

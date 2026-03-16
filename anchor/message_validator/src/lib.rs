@@ -1,6 +1,7 @@
 mod consensus_message;
 mod duty_state;
 mod message_counts;
+mod metrics;
 mod partial_signature;
 
 use std::{
@@ -10,7 +11,7 @@ use std::{
 };
 
 use dashmap::{DashMap, mapref::one::RefMut};
-use database::NetworkState;
+use database::NetworkDatabase;
 pub use duties_tracker::DutiesProvider;
 use fork::{Fork, ForkSchedule};
 pub use libp2p::gossipsub::MessageAcceptance;
@@ -33,7 +34,7 @@ use ssv_types::{
 use ssz::{Decode, DecodeError, Encode};
 use subnet_service::topic::ParsedTopic;
 use task_executor::TaskExecutor;
-use tokio::{sync::watch::Receiver, time::sleep};
+use tokio::time::sleep;
 use tracing::{debug, trace};
 use types::{Epoch, Slot};
 
@@ -361,7 +362,7 @@ struct ValidationContext<'a, S> {
 }
 
 pub struct Validator<S: SlotClock, D: DutiesProvider> {
-    network_state_rx: Receiver<NetworkState>,
+    database: Arc<NetworkDatabase>,
     duty_state_map: DashMap<MessageId, DutyState>,
     slots_per_epoch: u64,
     epochs_per_sync_committee_period: u64,
@@ -375,7 +376,7 @@ pub struct Validator<S: SlotClock, D: DutiesProvider> {
 impl<S: SlotClock + 'static, D: DutiesProvider> Validator<S, D> {
     #[expect(clippy::too_many_arguments)]
     pub fn new(
-        network_state_rx: Receiver<NetworkState>,
+        database: Arc<NetworkDatabase>,
         slots_per_epoch: u64,
         epochs_per_sync_committee_period: u64,
         sync_committee_size: usize,
@@ -386,7 +387,7 @@ impl<S: SlotClock + 'static, D: DutiesProvider> Validator<S, D> {
         task_executor: &TaskExecutor,
     ) -> Arc<Self> {
         let validator = Arc::new(Self {
-            network_state_rx,
+            database,
             duty_state_map: DashMap::new(),
             slots_per_epoch,
             epochs_per_sync_committee_period,
@@ -448,12 +449,15 @@ impl<S: SlotClock + 'static, D: DutiesProvider> Validator<S, D> {
         };
 
         // Get committee info based on role and duty executor
-        let network_state = self.network_state_rx.borrow();
+        let lookup_timer = metrics::start_timer(&metrics::MESSAGE_VALIDATOR_LOOKUP_TIME);
         let committee_info = match role {
             Role::Committee | Role::AggregatorCommittee => {
                 let committee_id = committee_id.ok_or(ValidationFailure::NonExistentCommitteeID)?;
-                network_state
+                self.database
                     .get_committee_info_by_committee_id(&committee_id)
+                    .map_err(|_| ValidationFailure::UnexpectedFailure {
+                        msg: "database read failure".to_string(),
+                    })?
                     .ok_or(ValidationFailure::NonExistentCommitteeID)?
             }
             // Validator roles use DutyExecutor::Validator with public key
@@ -467,8 +471,11 @@ impl<S: SlotClock + 'static, D: DutiesProvider> Validator<S, D> {
                     _ => return Err(ValidationFailure::UnknownValidator),
                 };
 
-                network_state
+                self.database
                     .get_committee_info_by_validator_pk(&validator_pk)
+                    .map_err(|_| ValidationFailure::UnexpectedFailure {
+                        msg: "database read failure".to_string(),
+                    })?
                     .ok_or(ValidationFailure::UnknownValidator)?
             }
         };
@@ -484,9 +491,8 @@ impl<S: SlotClock + 'static, D: DutiesProvider> Validator<S, D> {
         )?;
 
         let operator_pub_keys =
-            &get_operator_pub_keys(&network_state, &committee_info.committee_members);
-
-        drop(network_state);
+            &get_operator_pub_keys(&self.database, &committee_info.committee_members)?;
+        metrics::stop_timer(lookup_timer);
 
         let mut duty_state = self.get_duty_state(ssv_message.msg_id(), self.slots_per_epoch);
 
@@ -1064,17 +1070,19 @@ pub(crate) fn compute_quorum_size(committee_size: usize) -> usize {
 }
 
 fn get_operator_pub_keys(
-    network_state: &NetworkState,
+    database: &Arc<NetworkDatabase>,
     operator_ids: &IndexSet<OperatorId>,
-) -> HashMap<OperatorId, Rsa<Public>> {
-    operator_ids
+) -> Result<HashMap<OperatorId, Rsa<Public>>, ValidationFailure> {
+    Ok(operator_ids
         .iter()
         .flat_map(|id| {
-            network_state
+            database
                 .get_operator(id)
+                .ok()
+                .flatten()
                 .map(|operator| (*id, operator.rsa_pubkey))
         })
-        .collect()
+        .collect())
 }
 
 // # TODO centralize this and the one in the qbft crate

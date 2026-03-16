@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use database::{NetworkState, NonUniqueIndex, UniqueIndex};
+use database::NetworkDatabase;
 use libp2p::{
     PeerId,
     gossipsub::{Message, MessageAcceptance, MessageId},
@@ -17,7 +17,7 @@ use ssv_types::msgid::DutyExecutor;
 use tokio::sync::{mpsc, mpsc::error::TrySendError, watch};
 use tracing::{debug, debug_span, error, trace};
 
-use crate::MessageReceiver;
+use crate::{MessageReceiver, metrics::MESSAGE_RECEIVER_INTEREST_CHECK_TIME};
 
 const RECEIVER_NAME: &str = "message_receiver";
 
@@ -32,7 +32,7 @@ pub struct NetworkMessageReceiver<E: types::EthSpec, S: SlotClock, D: DutiesProv
     processor: processor::Senders,
     qbft_manager: Arc<QbftManager<E, S>>,
     signature_collector: Arc<SignatureCollectorManager<S>>,
-    network_state_rx: watch::Receiver<NetworkState>,
+    database: Arc<NetworkDatabase>,
     is_synced: watch::Receiver<bool>,
     outcome_tx: mpsc::Sender<Outcome>,
     validator: Arc<Validator<S, D>>,
@@ -45,7 +45,7 @@ impl<E: types::EthSpec, S: SlotClock + 'static, D: DutiesProvider> NetworkMessag
         processor: processor::Senders,
         qbft_manager: Arc<QbftManager<E, S>>,
         signature_collector: Arc<SignatureCollectorManager<S>>,
-        network_state_rx: watch::Receiver<NetworkState>,
+        database: Arc<NetworkDatabase>,
         is_synced: watch::Receiver<bool>,
         outcome_tx: mpsc::Sender<Outcome>,
         validator: Arc<Validator<S, D>>,
@@ -55,7 +55,7 @@ impl<E: types::EthSpec, S: SlotClock + 'static, D: DutiesProvider> NetworkMessag
             processor,
             qbft_manager,
             signature_collector,
-            network_state_rx,
+            database,
             is_synced,
             outcome_tx,
             validator,
@@ -125,48 +125,45 @@ impl<E: types::EthSpec, S: SlotClock + 'static, D: DutiesProvider> MessageReceiv
                 };
 
                 let msg_id = signed_ssv_message.ssv_message().msg_id().clone();
+                let interest_timer = metrics::start_timer(&MESSAGE_RECEIVER_INTEREST_CHECK_TIME);
 
                 match msg_id.duty_executor() {
                     Some(DutyExecutor::Validator(validator)) => {
-                        if receiver
-                            .network_state_rx
-                            .borrow()
-                            .shares()
-                            .get_by(&validator)
-                            .is_none()
+                        if !receiver
+                            .database
+                            .share_exists_for_validator(&validator)
+                            .unwrap_or(false)
                         {
+                            metrics::stop_timer(interest_timer);
                             // We are not a signer for this validator, return without passing.
                             trace!(gosspisub_message_id = ?message_id, ssv_msg_id = ?msg_id, ?validator, "Not interested");
                             return;
                         }
                     }
                     Some(DutyExecutor::Committee(committee_id)) => {
-                        let state = receiver.network_state_rx.borrow();
-                        let Some(own_id) = state.get_own_id() else {
+                        let Some(own_id) = receiver.database.get_own_id().ok().flatten() else {
                             // We do not know who we are yet.
                             return;
                         };
-
-                        // We only need to check one cluster, as all clusters will have the same set
-                        // of operators.
-                        let is_member = state
-                            .clusters()
-                            .get_all_by(&committee_id)
-                            .next()
-                            .map(|c| c.cluster_members.contains(&own_id))
+                        let is_member = receiver
+                            .database
+                            .is_member_of_committee(&committee_id, own_id)
                             .unwrap_or(false);
 
                         if !is_member {
+                            metrics::stop_timer(interest_timer);
                             // We are not a member for this committee, return without passing.
                             trace!(gossipsub_message_id = ?message_id, ssv_msg_id = ?msg_id, ?committee_id, "Not interested");
                             return;
                         }
                     }
                     None => {
+                        metrics::stop_timer(interest_timer);
                         error!(gossipsub_message_id = ?message_id, ssv_msg_id = ?msg_id, "Invalid message ID");
                         return;
                     }
                 }
+                metrics::stop_timer(interest_timer);
 
                 // Check for operator doppelgänger before processing any message
                 if let Some(service) = &receiver.doppelganger_service {

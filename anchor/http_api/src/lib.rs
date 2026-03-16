@@ -5,11 +5,11 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::http::Method;
 pub use config::Config;
-use database::NetworkState;
+use database::NetworkDatabase;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use task_executor::TaskExecutor;
-use tokio::{net::TcpListener, sync::watch};
+use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 /// A wrapper around all the items required to spawn the HTTP server.
@@ -30,7 +30,7 @@ pub struct Context<T: SlotClock> {
 }
 
 pub struct Shared {
-    pub database_state: Option<watch::Receiver<NetworkState>>,
+    pub database: Option<Arc<NetworkDatabase>>,
 }
 
 /// Runs the HTTP API server

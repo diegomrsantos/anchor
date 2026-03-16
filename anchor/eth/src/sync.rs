@@ -352,8 +352,8 @@ impl SsvEventSyncer {
         let mut start_block = self
             .event_processor
             .db
-            .state()
-            .next_block_to_fetch(deployment_block);
+            .next_block_to_fetch(deployment_block)
+            .map_err(|err| ExecutionError::Database(err.to_string()))?;
 
         loop {
             match self.rpc_client.syncing().await {
@@ -510,8 +510,8 @@ impl SsvEventSyncer {
         if self
             .event_processor
             .db
-            .state()
             .get_all_operators()
+            .map_err(|err| ExecutionError::Database(err.to_string()))?
             .is_empty()
         {
             warn!("No OperatorAdded events found in historical sync, there is likely a sync error");
@@ -701,8 +701,8 @@ impl SsvEventSyncer {
                 let start_block = self
                     .event_processor
                     .db
-                    .state()
-                    .next_block_to_fetch(self.network.ssv_contract_block);
+                    .next_block_to_fetch(self.network.ssv_contract_block)
+                    .map_err(|err| ExecutionError::Database(err.to_string()))?;
                 if relevant_block < start_block {
                     debug!(
                         block_number = block_header.number,

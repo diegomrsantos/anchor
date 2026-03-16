@@ -1,4 +1,3 @@
-use database::{NetworkState, NonUniqueIndex};
 use slot_clock::SlotClock;
 use ssv_types::OperatorId;
 use tracing::{debug, error, warn};
@@ -35,10 +34,7 @@ impl<S: SlotClock> SubnetService<S> {
         for subnet in &fork.currently_subscribed {
             let topic = create_topic(&topic_prefix, *subnet);
 
-            let committees_info = {
-                let state = self.db.borrow();
-                self.get_committee_info_for_subnet(subnet, &fork.config, &state)
-            };
+            let committees_info = self.get_committee_info_for_subnet(subnet, &fork.config);
 
             let rate = message_rate::calculate_message_rate_for_topic::<E>(
                 &committees_info,
@@ -65,14 +61,12 @@ impl<S: SlotClock> SubnetService<S> {
         &self,
         subnet: &SubnetId,
         fork_config: &fork::ForkConfig,
-        network_state: &NetworkState,
     ) -> Option<f64> {
         if self.disable_gossipsub_topic_scoring {
             return None;
         }
 
-        let committees_info =
-            self.get_committee_info_for_subnet(subnet, fork_config, network_state);
+        let committees_info = self.get_committee_info_for_subnet(subnet, fork_config);
         Some(message_rate::calculate_message_rate_for_topic::<E>(
             &committees_info,
             &self.chain_spec,
@@ -87,30 +81,20 @@ impl<S: SlotClock> SubnetService<S> {
         &self,
         subnet: &SubnetId,
         fork_config: &fork::ForkConfig,
-        network_state: &NetworkState,
     ) -> Vec<ssv_types::CommitteeInfo> {
-        network_state
-            .clusters()
-            .values()
-            .filter(|cluster| {
-                let operator_ids: Vec<OperatorId> =
-                    cluster.cluster_members.iter().copied().collect();
-                match SubnetId::from_operators_for_fork(&operator_ids, fork_config.fork) {
-                    Ok(cluster_subnet) => cluster_subnet == *subnet,
-                    Err(_) => false,
-                }
+        self.db
+            .list_committees()
+            .map_err(|err| {
+                error!(?err, "Failed to load committees for subnet scoring");
             })
-            .map(|cluster| {
-                // Convert cluster to CommitteeInfo by getting validator indices
-                let validator_indices = network_state
-                    .metadata()
-                    .get_all_by(&cluster.cluster_id)
-                    .flat_map(|metadata| metadata.index)
-                    .collect::<Vec<_>>();
-
-                ssv_types::CommitteeInfo {
-                    committee_members: cluster.cluster_members.clone(),
-                    validator_indices,
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(_, committee)| {
+                let operator_ids: Vec<OperatorId> =
+                    committee.committee_members.iter().copied().collect();
+                match SubnetId::from_operators_for_fork(&operator_ids, fork_config.fork) {
+                    Ok(cluster_subnet) if cluster_subnet == *subnet => Some(committee),
+                    Ok(_) | Err(_) => None,
                 }
             })
             .collect()

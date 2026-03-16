@@ -6,7 +6,7 @@ use alloy::{
     sol_types::SolEvent,
 };
 use bls::PublicKeyBytes;
-use database::{NetworkDatabase, ProcessedEventCursor, SlashingProtection, UniqueIndex};
+use database::{NetworkDatabase, ProcessedEventCursor, SlashingProtection};
 use indexmap::IndexSet;
 use ssv_types::{Cluster, ClusterId, Operator, OperatorId, ValidatorIndex};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -257,10 +257,16 @@ impl EventProcessor {
     // Collapse a partial in-block cursor back to a fully processed block once the whole range
     // completed successfully.
     fn advance_processed_block_if_needed(&self, end_block: u64) -> Result<(), ExecutionError> {
-        let needs_advance = self.db.with_state(|state| {
-            state.get_last_processed_block() != end_block
-                || state.get_last_processed_event().is_some()
-        });
+        let needs_advance = self
+            .db
+            .get_last_processed_block()
+            .map_err(|e| ExecutionError::Database(e.to_string()))?
+            != end_block
+            || self
+                .db
+                .get_last_processed_event()
+                .map_err(|e| ExecutionError::Database(e.to_string()))?
+                .is_some();
 
         if needs_advance {
             self.db
@@ -281,7 +287,7 @@ impl EventProcessor {
     }
 
     fn skip_processed_logs(&self, logs: Vec<Log>) -> Vec<Log> {
-        let Some(cursor) = self.db.with_state(|state| state.get_last_processed_event()) else {
+        let Some(cursor) = self.db.get_last_processed_event().unwrap_or(None) else {
             return logs;
         };
 
@@ -357,16 +363,21 @@ impl EventProcessor {
         trace!(operator_id = ?operator_id, owner = ?owner, "Processing operator added");
 
         // Confirm that this operator does not already exist
-        if self
-            .db
-            .with_state(|state| state.operator_exists(&operator_id))
-        {
+        if self.db.operator_exists(&operator_id).map_err(|e| {
+            EventActionError::Fatal(ExecutionError::Database(format!(
+                "Failed to check operator existence: {e}"
+            )))
+        })? {
             return Err(EventActionError::Skippable(ExecutionError::Duplicate(
                 format!("Operator with id {operator_id:?} already exists in database"),
             )));
         }
 
-        let max_seen = self.db.with_state(|state| state.get_max_operator_id_seen());
+        let max_seen = self.db.get_max_operator_id_seen().map_err(|e| {
+            EventActionError::Fatal(ExecutionError::Database(format!(
+                "Failed to read max seen operator id: {e}"
+            )))
+        })?;
 
         // Only check for missing operators if we have a previous max (not a migrated database)
         if let Some(max_seen) = max_seen
@@ -499,7 +510,11 @@ impl EventProcessor {
             .map_err(EventActionError::Skippable)?;
         trace!(owner = ?owner, operator_count = operatorIds.len(), "Processing validator addition");
 
-        let nonce = self.db.with_state(|state| state.get_next_nonce(&owner));
+        let nonce = self.db.get_next_nonce(&owner).map_err(|e| {
+            EventActionError::Fatal(ExecutionError::Database(format!(
+                "Failed to read owner nonce: {e}"
+            )))
+        })?;
 
         let skip_with_nonce = |err| {
             self.db.commit_owner_nonce(owner, cursor).map_err(|e| {
@@ -535,7 +550,12 @@ impl EventProcessor {
         // malformed input to skip instead of letting the SQL unique constraint abort sync.
         let validator_exists = self
             .db
-            .with_state(|state| state.metadata().get_by(&validator_pubkey).is_some());
+            .has_validator_metadata(&validator_pubkey)
+            .map_err(|e| {
+                EventActionError::Fatal(ExecutionError::Database(format!(
+                    "Failed to check validator existence: {e}"
+                )))
+            })?;
         if validator_exists {
             return skip_with_nonce(ExecutionError::Duplicate(format!(
                 "Validator with public key {validator_pubkey} already exists in database"
@@ -546,9 +566,11 @@ impl EventProcessor {
 
         // Perform verification on the operator set and make sure they are all registered in the
         // network
-        let operators_valid = self
-            .db
-            .with_state(|state| validate_operators(&operator_ids, &cluster_id, state));
+        let operators_valid = validate_operators(&operator_ids, &cluster_id, |operator_id| {
+            self.db
+                .operator_exists(operator_id)
+                .map_err(|e| ExecutionError::Database(e.to_string()))
+        });
         if let Err(err) = operators_valid {
             return skip_with_nonce(err);
         }
@@ -588,7 +610,13 @@ impl EventProcessor {
         // Get the fee recipient if one has been stored, otherwise default to the owner address
         let fee_recipient = self
             .db
-            .with_state(|state| state.fee_recipient_for_owner(&owner).unwrap_or(owner));
+            .read_fee_recipient_for_owner(&owner)
+            .map_err(|e| {
+                EventActionError::Fatal(ExecutionError::Database(format!(
+                    "Failed to read fee recipient: {e}"
+                )))
+            })?
+            .unwrap_or(owner);
 
         // Finally, construct and insert the full cluster and insert into the database
         let cluster = Cluster {
@@ -657,8 +685,12 @@ impl EventProcessor {
 
         let metadata = match self
             .db
-            .with_state(|state| state.metadata().get_by(&validator_pubkey).cloned())
-        {
+            .get_validator_metadata(&validator_pubkey)
+            .map_err(|e| {
+                EventActionError::Fatal(ExecutionError::Database(format!(
+                    "Failed to fetch validator metadata from database: {e}"
+                )))
+            })? {
             Some(data) => data,
             None => {
                 debug!(
@@ -674,8 +706,12 @@ impl EventProcessor {
         // Get the cluster that this validator is in
         let cluster = match self
             .db
-            .with_state(|state| state.clusters().get_by(&validator_pubkey).cloned())
-        {
+            .get_cluster_by_validator_pubkey(&validator_pubkey)
+            .map_err(|e| {
+                EventActionError::Fatal(ExecutionError::Database(format!(
+                    "Failed to fetch cluster from database: {e}"
+                )))
+            })? {
             Some(data) => data,
             None => {
                 debug!(
@@ -891,9 +927,12 @@ impl EventProcessor {
 
         // Perform verification on the operator set and make sure they are all registered in the
         // network
-        self.db
-            .with_state(|state| validate_operators(&operator_ids, &computed_cluster_id, state))
-            .map_err(EventActionError::Skippable)?;
+        validate_operators(&operator_ids, &computed_cluster_id, |operator_id| {
+            self.db
+                .operator_exists(operator_id)
+                .map_err(|e| ExecutionError::Database(e.to_string()))
+        })
+        .map_err(EventActionError::Skippable)?;
 
         let block_timestamp = log.block_timestamp.ok_or_else(|| {
             EventActionError::Skippable(ExecutionError::InvalidEvent(
@@ -955,7 +994,8 @@ impl EventProcessor {
 
     fn is_our_validator(&self, validator_pubkey: &PublicKeyBytes) -> bool {
         self.db
-            .with_state(|state| state.shares().get_by(validator_pubkey).is_some())
+            .share_exists_for_validator(validator_pubkey)
+            .unwrap_or(false)
     }
 
     /// Retrieves the validator index for a given validator public key from the database.
@@ -972,15 +1012,17 @@ impl EventProcessor {
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<Option<ValidatorIndex>, ExecutionError> {
         // Get the validator metadata including its index
-        let validator_metadata = match self
-            .db
-            .with_state(|state| state.metadata().get_by(validator_pubkey).cloned())
-        {
-            Some(metadata) => metadata,
-            None => {
+        let validator_metadata = match self.db.get_validator_metadata(validator_pubkey) {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
                 return Err(ExecutionError::InvalidEvent(
                     "Validator metadata not found".to_string(),
                 ));
+            }
+            Err(e) => {
+                return Err(ExecutionError::Database(format!(
+                    "Failed to fetch validator metadata: {e}"
+                )));
             }
         };
 
@@ -1024,15 +1066,17 @@ impl EventProcessor {
         computed_cluster_id: &ClusterId,
     ) -> Result<(), ExecutionError> {
         // Get the cluster for this validator to access owner information
-        let cluster = match self
-            .db
-            .with_state(|state| state.clusters().get_by(validator_pubkey).cloned())
-        {
-            Some(cluster) => cluster,
-            None => {
+        let cluster = match self.db.get_cluster_by_validator_pubkey(validator_pubkey) {
+            Ok(Some(cluster)) => cluster,
+            Ok(None) => {
                 return Err(ExecutionError::InvalidEvent(
                     "Cluster not found for validator".to_string(),
                 ));
+            }
+            Err(e) => {
+                return Err(ExecutionError::Database(format!(
+                    "Failed to fetch cluster for validator: {e}"
+                )));
             }
         };
 

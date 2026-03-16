@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anchor_validator_store::AnchorValidatorStore;
-use database::NetworkState;
+use database::NetworkDatabase;
 use operator_doppelganger::OperatorDoppelgangerService;
 use slot_clock::SlotClock;
 use task_executor::TaskExecutor;
@@ -76,7 +76,7 @@ impl DoppelgangerState {
 
 pub fn spawn_notifier<E: EthSpec, T: SlotClock + 'static>(
     duties_service: Arc<DutiesService<AnchorValidatorStore<T, E>, T>>,
-    network_state: watch::Receiver<NetworkState>,
+    database: Arc<NetworkDatabase>,
     synced: watch::Receiver<bool>,
     doppelganger_service: Option<Arc<OperatorDoppelgangerService>>,
     executor: TaskExecutor,
@@ -91,7 +91,7 @@ pub fn spawn_notifier<E: EthSpec, T: SlotClock + 'static>(
                 sleep(duration_to_next_slot + slot_duration / 2).await;
                 notify(
                     &duties_service,
-                    &network_state,
+                    &database,
                     &synced,
                     doppelganger_service.as_ref(),
                 )
@@ -110,17 +110,13 @@ pub fn spawn_notifier<E: EthSpec, T: SlotClock + 'static>(
 
 async fn notify<E: EthSpec, T: SlotClock + 'static>(
     duties_service: &DutiesService<AnchorValidatorStore<T, E>, T>,
-    network_state: &watch::Receiver<NetworkState>,
+    database: &Arc<NetworkDatabase>,
     synced: &watch::Receiver<bool>,
     doppelganger_service: Option<&Arc<OperatorDoppelgangerService>>,
 ) {
     // Gather state information
-    let (operator_id, cluster_count) = {
-        let state = network_state.borrow();
-        let operator_id = state.get_own_id();
-        let cluster_count = state.get_own_clusters().len();
-        (operator_id, cluster_count)
-    };
+    let operator_id = database.get_own_id().ok().flatten();
+    let cluster_count = database.own_cluster_count().unwrap_or_default();
 
     let validator_count = duties_service.total_validator_count() as i64;
     validator_metrics::set_gauge(

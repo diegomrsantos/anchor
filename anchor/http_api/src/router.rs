@@ -7,7 +7,6 @@ use axum::{Json, Router, extract::State, routing::get};
 use eth2::lighthouse::Health;
 use health_metrics::observe::Observe;
 use parking_lot::RwLock;
-use ssv_types::CommitteeId;
 use version::version_with_platform;
 
 use crate::Shared;
@@ -42,11 +41,11 @@ async fn get_health() -> Json<GenericResponse<Result<Health, String>>> {
 async fn get_validators(
     State(shared_state): State<Arc<RwLock<Shared>>>,
 ) -> Json<GenericResponse<Vec<ValidatorData>>> {
-    if let Some(database_state) = &shared_state.read().database_state {
-        let validators = database_state
-            .borrow()
-            .metadata()
-            .values()
+    if let Some(database) = &shared_state.read().database {
+        let validators = database
+            .list_validators()
+            .unwrap_or_default()
+            .iter()
             .map(|v| ValidatorData {
                 public_key: v.public_key.to_string(),
                 cluster_id: format!("{:?}", v.cluster_id),
@@ -64,32 +63,23 @@ async fn get_validators(
 async fn get_committees(
     State(shared_state): State<Arc<RwLock<Shared>>>,
 ) -> Json<GenericResponse<Vec<CommitteeData>>> {
-    if let Some(database_state) = &shared_state.read().database_state {
-        let state = database_state.borrow();
-        let committee_ids = state
-            .clusters()
-            .values()
-            .map(|cluster| cluster.committee_id())
-            .collect::<Vec<CommitteeId>>();
-
-        let committee_data = committee_ids
+    if let Some(database) = &shared_state.read().database {
+        let committee_data = database
+            .list_committees()
+            .unwrap_or_default()
             .iter()
-            .filter_map(|committee_id| {
-                state
-                    .get_committee_info_by_committee_id(committee_id)
-                    .map(|info| CommitteeData {
-                        committee_id: format!("{committee_id:?}"),
-                        committee_members: info
-                            .committee_members
-                            .iter()
-                            .map(|operator_id| operator_id.0)
-                            .collect(),
-                        validator_indices: info
-                            .validator_indices
-                            .iter()
-                            .map(|validator_index| validator_index.0)
-                            .collect(),
-                    })
+            .map(|(committee_id, info)| CommitteeData {
+                committee_id: format!("{committee_id:?}"),
+                committee_members: info
+                    .committee_members
+                    .iter()
+                    .map(|operator_id| operator_id.0)
+                    .collect(),
+                validator_indices: info
+                    .validator_indices
+                    .iter()
+                    .map(|validator_index| validator_index.0)
+                    .collect(),
             })
             .collect::<Vec<CommitteeData>>();
         Json(GenericResponse::from(committee_data))

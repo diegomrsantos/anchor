@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use database::{NetworkState, NonUniqueIndex};
+use database::NetworkDatabase;
 use fork::{Fork, ForkLifecycle, ForkSchedule};
 use slot_clock::SlotClock;
 use ssv_types::{CommitteeId, OperatorId};
@@ -43,7 +43,8 @@ pub enum SubnetServiceError {
 /// to query the correct subnet for a committee based on the current fork.
 pub struct SubnetService<S: SlotClock> {
     pub(crate) tx: mpsc::Sender<TopicEvent>,
-    pub(crate) db: watch::Receiver<NetworkState>,
+    pub(crate) db: Arc<NetworkDatabase>,
+    pub(crate) revision_rx: watch::Receiver<u64>,
     pub(crate) subscribe_all_subnets: bool,
     pub(crate) disable_gossipsub_topic_scoring: bool,
     pub(crate) slot_clock: Arc<S>,
@@ -57,7 +58,8 @@ impl<S: SlotClock> SubnetService<S> {
     #[expect(clippy::too_many_arguments)]
     fn new(
         tx: mpsc::Sender<TopicEvent>,
-        db: watch::Receiver<NetworkState>,
+        db: Arc<NetworkDatabase>,
+        revision_rx: watch::Receiver<u64>,
         subscribe_all_subnets: bool,
         disable_gossipsub_topic_scoring: bool,
         slot_clock: Arc<S>,
@@ -70,6 +72,7 @@ impl<S: SlotClock> SubnetService<S> {
         Self {
             tx,
             db,
+            revision_rx,
             subscribe_all_subnets,
             disable_gossipsub_topic_scoring,
             slot_clock,
@@ -125,11 +128,9 @@ impl<S: SlotClock> SubnetService<S> {
         committee_id: CommitteeId,
     ) -> Result<Vec<OperatorId>, SubnetServiceError> {
         self.db
-            .borrow()
-            .clusters()
-            .get_all_by(&committee_id)
-            .next()
-            .map(|cluster| cluster.cluster_members.iter().copied().collect())
+            .get_committee_info_by_committee_id(&committee_id)
+            .map_err(|_| SubnetServiceError::ClusterNotFound(committee_id))?
+            .map(|info| info.committee_members.iter().copied().collect())
             .ok_or(SubnetServiceError::ClusterNotFound(committee_id))
     }
 
@@ -147,7 +148,7 @@ impl<S: SlotClock> SubnetService<S> {
 /// and the receiver for topic events.
 #[expect(clippy::too_many_arguments)]
 pub fn start_subnet_service<S: SlotClock + 'static, E: EthSpec>(
-    db: watch::Receiver<NetworkState>,
+    db: Arc<NetworkDatabase>,
     subscribe_all_subnets: bool,
     disable_gossipsub_topic_scoring: bool,
     executor: &TaskExecutor,
@@ -157,10 +158,12 @@ pub fn start_subnet_service<S: SlotClock + 'static, E: EthSpec>(
     lifecycle_rx: watch::Receiver<ForkLifecycle>,
 ) -> (Arc<SubnetService<S>>, mpsc::Receiver<TopicEvent>) {
     let (tx, rx) = mpsc::channel(SUBNET_COUNT);
+    let revision_rx = db.watch_revision();
 
     let service = Arc::new(SubnetService::new(
         tx,
         db,
+        revision_rx,
         subscribe_all_subnets,
         disable_gossipsub_topic_scoring,
         Arc::new(slot_clock),

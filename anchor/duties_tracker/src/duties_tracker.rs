@@ -2,13 +2,13 @@ use std::{future::Future, sync::Arc};
 
 use beacon_node_fallback::BeaconNodeFallback;
 use bls::PublicKeyBytes;
-use database::NetworkState;
+use database::NetworkDatabase;
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssv_types::ValidatorIndex;
 use task_executor::TaskExecutor;
 use thiserror::Error;
-use tokio::{sync::watch, time::sleep};
+use tokio::time::sleep;
 use tracing::{debug, error, trace, warn};
 use types::{ChainSpec, Epoch, Slot};
 
@@ -40,8 +40,8 @@ pub struct DutiesTracker<T: SlotClock + 'static> {
     slots_per_epoch: u64,
     /// The slot clock.
     slot_clock: T,
-    /// The network state receiver.
-    network_state_rx: watch::Receiver<NetworkState>,
+    /// Database used for validator/operator lookups.
+    database: Arc<NetworkDatabase>,
 }
 
 impl<T: SlotClock + 'static> DutiesTracker<T> {
@@ -51,7 +51,7 @@ impl<T: SlotClock + 'static> DutiesTracker<T> {
         spec: Arc<ChainSpec>,
         slots_per_epoch: u64,
         slot_clock: T,
-        network_state_rx: watch::Receiver<NetworkState>,
+        database: Arc<NetworkDatabase>,
     ) -> Self {
         Self {
             duties: Duties::new(),
@@ -60,7 +60,7 @@ impl<T: SlotClock + 'static> DutiesTracker<T> {
             spec,
             slots_per_epoch,
             slot_clock,
-            network_state_rx,
+            database,
         }
     }
 
@@ -84,10 +84,7 @@ impl<T: SlotClock + 'static> DutiesTracker<T> {
         let next_sync_committee_period = current_sync_committee_period + 1;
 
         // avoid holding the borrow across .await points
-        let validator_indices = {
-            let network_state = self.network_state_rx.borrow();
-            network_state.validator_indices()
-        };
+        let validator_indices = self.database.validator_indices().unwrap_or_default();
 
         // If duties aren't known for the current period, poll for them.
         self.poll_missing_sync_committee_duties_for_period(
@@ -218,11 +215,7 @@ impl<T: SlotClock + 'static> DutiesTracker<T> {
 
         let result = match download_result {
             Ok(response) => {
-                // avoid holding the borrow across .await points
-                let validator_indices = {
-                    let network_state = self.network_state_rx.borrow();
-                    network_state.validator_indices()
-                };
+                let validator_indices = self.database.validator_indices().unwrap_or_default();
 
                 let relevant_duties = response
                     .data

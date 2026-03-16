@@ -176,9 +176,7 @@ impl Client {
         };
 
         // Optionally run the http_api server
-        let http_api_shared_state = Arc::new(RwLock::new(http_api::Shared {
-            database_state: None,
-        }));
+        let http_api_shared_state = Arc::new(RwLock::new(http_api::Shared { database: None }));
         let state = http_api_shared_state.clone();
 
         executor.spawn(
@@ -416,7 +414,7 @@ impl Client {
         // Follows the common pattern: pass OwnOperatorId to components, they call .get() only when
         // needed. This allows initialization before sync completes (which populates the ID from
         // chain).
-        let operator_id = OwnOperatorId::new(database.watch());
+        let operator_id = OwnOperatorId::new(database.clone());
 
         // Network sender/receiver - topic string and message bytes
         // The message sender determines the full topic string based on message slot (per SIP-43)
@@ -428,7 +426,7 @@ impl Client {
             spec.clone(),
             E::slots_per_epoch(),
             slot_clock.clone(),
-            database.watch(),
+            database.clone(),
         ));
         duties_tracker.clone().start(executor.clone());
 
@@ -452,7 +450,7 @@ impl Client {
         // Start the subnet service now that we have slot_clock
         // This returns Arc<SubnetService> for message routing and topic event receiver for network
         let (subnet_service, topic_event_rx) = start_subnet_service::<_, E>(
-            database.watch(),
+            database.clone(),
             config.network.subscribe_all_subnets,
             config.network.disable_gossipsub_topic_scoring,
             &executor,
@@ -464,7 +462,7 @@ impl Client {
 
         // Create message validator after subnet_service (depends on it for fork-aware validation)
         let message_validator = Validator::new(
-            database.watch(),
+            database.clone(),
             E::slots_per_epoch(),
             spec.epochs_per_sync_committee_period.as_u64(),
             E::sync_committee_size(),
@@ -522,7 +520,7 @@ impl Client {
             processor_senders.clone(),
             qbft_manager.clone(),
             signature_collector.clone(),
-            database.watch(),
+            database.clone(),
             is_synced.clone(),
             outcome_tx,
             message_validator,
@@ -614,7 +612,7 @@ impl Client {
         // Spawn notifier for logging and metrics
         spawn_notifier(
             duties_service.clone(),
-            database.watch(),
+            database.clone(),
             is_synced.clone(),
             doppelganger_service.clone(),
             executor.clone(),
@@ -727,7 +725,7 @@ impl Client {
             .start_validator_registration_service(&spec)
             .map_err(|e| format!("Unable to start validator registration service: {e}"))?;
 
-        http_api_shared_state.write().database_state = Some(database.watch());
+        http_api_shared_state.write().database = Some(database.clone());
 
         if !config.disable_latency_measurement_service {
             start_latency_service(executor.clone(), slot_clock.clone(), beacon_nodes.clone());

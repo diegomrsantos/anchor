@@ -7,7 +7,6 @@ use alloy::{
     transports::{Transport, http::Http, layers::FallbackLayer},
 };
 use bls::{PublicKeyBytes, Signature};
-use database::NetworkState;
 use reqwest::Client;
 use sensitive_url::SensitiveUrl;
 use ssv_types::{ClusterId, ENCRYPTED_KEY_LENGTH, OperatorId, Share, ValidatorMetadata};
@@ -130,7 +129,7 @@ pub fn verify_signature(
 pub fn validate_operators(
     operator_ids: &[OperatorId],
     cluster_id: &ClusterId,
-    network_state: &NetworkState,
+    mut operator_exists: impl FnMut(&OperatorId) -> Result<bool, ExecutionError>,
 ) -> Result<(), ExecutionError> {
     trace!(cluster_id = ?cluster_id, "Validating operators");
 
@@ -165,13 +164,12 @@ pub fn validate_operators(
         ));
     }
 
-    if operator_ids
-        .iter()
-        .any(|id| !network_state.operator_exists(id))
-    {
-        return Err(ExecutionError::InvalidEvent(
-            "One or more operators do not exist".to_string(),
-        ));
+    for operator_id in operator_ids {
+        if !operator_exists(operator_id)? {
+            return Err(ExecutionError::InvalidEvent(format!(
+                "Operator {operator_id} does not exist"
+            )));
+        }
     }
 
     Ok(())

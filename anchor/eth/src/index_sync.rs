@@ -2,10 +2,10 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use beacon_node_fallback::BeaconNodeFallback;
 use bls::PublicKeyBytes;
-use database::{ClusterMultiIndexMap, NetworkDatabase, UniqueIndex};
+use database::NetworkDatabase;
 use eth2::types::{StateId, ValidatorId};
 use slot_clock::SlotClock;
-use ssv_types::{ValidatorIndex, ValidatorMetadata};
+use ssv_types::ValidatorIndex;
 use task_executor::TaskExecutor;
 use tokio::{
     select,
@@ -79,14 +79,16 @@ async fn validator_index_syncer(
         // database
         let space = MAX_BATCH_SIZE - batch.len();
         if space > 0 {
-            let state = db.state();
-            let clusters = state.clusters();
-            let mut from_database = state
-                .metadata()
-                .values()
-                .filter_map(|v| needs_index(v, &batch, clusters))
-                .collect::<Vec<_>>();
-            drop(state);
+            let mut from_database = match db.validators_needing_index() {
+                Ok(pubkeys) => pubkeys
+                    .into_iter()
+                    .filter(|pubkey| !batch.contains(pubkey))
+                    .collect::<Vec<_>>(),
+                Err(err) => {
+                    error!(?err, "Failed to sweep validator indices from database");
+                    Vec::new()
+                }
+            };
             let count = from_database.len();
             debug!(len = count, db_sweep, "Found unset index validators");
 
@@ -136,17 +138,4 @@ async fn validator_index_syncer(
             }
         }
     }
-}
-
-fn needs_index(
-    metadata: &ValidatorMetadata,
-    current_batch: &[PublicKeyBytes],
-    clusters: &ClusterMultiIndexMap,
-) -> Option<PublicKeyBytes> {
-    (metadata.index.is_none()
-        && !current_batch.contains(&metadata.public_key)
-        && clusters
-            .get_by(&metadata.cluster_id)
-            .is_some_and(|c| !c.liquidated))
-    .then_some(metadata.public_key)
 }

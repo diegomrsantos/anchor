@@ -4,7 +4,6 @@ use std::{
     time::Duration,
 };
 
-use database::{NetworkState, UniqueIndex};
 use fork::{Fork, ForkConfig, ForkLifecycle};
 use slot_clock::SlotClock;
 use ssv_types::OperatorId;
@@ -56,14 +55,8 @@ enum SubnetGenerator {
 }
 
 impl SubnetGenerator {
-    fn committees_from_network_state(state: &NetworkState) -> Self {
-        let all_committee_members = state
-            .get_own_clusters()
-            .iter()
-            .flat_map(|cluster| state.clusters().get_by(cluster))
-            .map(|cluster| cluster.cluster_members.iter().copied().collect::<Vec<_>>())
-            .collect();
-        SubnetGenerator::Committees(all_committee_members)
+    fn from_committee_operator_sets(committee_sets: Vec<Vec<OperatorId>>) -> Self {
+        SubnetGenerator::Committees(committee_sets.into_iter().collect())
     }
 
     fn generate_subnets(&self, fork: Fork) -> Result<HashSet<SubnetId>, SubnetServiceError> {
@@ -91,13 +84,13 @@ impl<S: SlotClock> SubnetService<S> {
         self: Arc<Self>,
         mut lifecycle_rx: watch::Receiver<ForkLifecycle>,
     ) {
-        let mut db = self.db.clone();
+        let mut revision_rx = self.revision_rx.clone();
         let mut service_state = self.initial_service_state::<E>(&mut lifecycle_rx).await;
 
         loop {
             let delay = calculate_duration_to_next_epoch::<E>(&*self.slot_clock);
             tokio::select! {
-                _ = db.changed(), if !self.subscribe_all_subnets => {
+                _ = revision_rx.changed(), if !self.subscribe_all_subnets => {
                     self.handle_subnet_changes::<E>(&mut service_state).await;
                 }
                 _ = sleep(delay), if !self.disable_gossipsub_topic_scoring => {
@@ -176,8 +169,9 @@ impl<S: SlotClock> SubnetService<S> {
         let subnet_source = if self.subscribe_all_subnets {
             SubnetGenerator::All
         } else {
-            let state = self.db.borrow();
-            SubnetGenerator::committees_from_network_state(&state)
+            SubnetGenerator::from_committee_operator_sets(
+                self.db.own_committee_operator_sets().unwrap_or_default(),
+            )
         };
 
         for fork in service_state.forks.values_mut() {
@@ -258,10 +252,7 @@ impl<S: SlotClock> SubnetService<S> {
             let topic = create_topic(&prefix, subnet);
             debug!(%topic, "send subscribe");
             let message_rate = send_message_rate
-                .then(|| {
-                    let state = self.db.borrow();
-                    self.subnet_message_rate::<E>(&subnet, fork_config, &state)
-                })
+                .then(|| self.subnet_message_rate::<E>(&subnet, fork_config))
                 .flatten();
 
             if self
@@ -328,7 +319,7 @@ mod tests {
     /// The harness uses real watch/mpsc channels so tests exercise the `run()` loop end-to-end
     /// for lifecycle transitions.
     struct TestHarness {
-        _db: NetworkDatabase,
+        _db: Arc<NetworkDatabase>,
         _runtime: TestRuntime,
         _service: Arc<crate::SubnetService<ManualSlotClock>>,
         lifecycle_tx: watch::Sender<ForkLifecycle>,
@@ -358,8 +349,10 @@ mod tests {
         ) -> Self {
             let temp_dir = TempDir::new().expect("should create temp directory for test database");
             let db_path = temp_dir.path().join("subnet_service_lifecycle.db");
-            let db = NetworkDatabase::new_as_impostor(&db_path, &OperatorId(1), TEST_NETWORK)
-                .expect("should build test database");
+            let db = Arc::new(
+                NetworkDatabase::new_as_impostor(&db_path, &OperatorId(1), TEST_NETWORK)
+                    .expect("should build test database"),
+            );
 
             let (fork_schedule, alan_config, boole_config) = test_fork_schedule();
             let (lifecycle_tx, lifecycle_rx) =
@@ -373,7 +366,7 @@ mod tests {
 
             let runtime = TestRuntime::default();
             let (service, topic_event_rx) = start_subnet_service::<_, MinimalEthSpec>(
-                db.watch(),
+                db.clone(),
                 // Keep tests deterministic: always subscribe to all subnets so each lifecycle
                 // phase emits a stable `SUBNET_COUNT` per tracked fork, independent of DB
                 // committee fixture contents.
