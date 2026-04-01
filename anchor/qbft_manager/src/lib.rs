@@ -224,6 +224,12 @@ impl<E: EthSpec, S: SlotClock + Clone + 'static> QbftManager<E, S> {
         self.fork_schedule.active_fork_config(epoch).domain_type
     }
 
+    fn current_slot_exceeds_deadline(&self, deadline: types::Slot) -> bool {
+        self.slot_clock
+            .now()
+            .is_some_and(|current_slot| current_slot > deadline)
+    }
+
     // Decide a brand new qbft instance
     pub async fn decide_instance<D: QbftDecidable<E>>(
         &self,
@@ -265,9 +271,20 @@ impl<E: EthSpec, S: SlotClock + Clone + 'static> QbftManager<E, S> {
             .with_max_rounds(role.max_round().ok_or(QbftError::InconsistentMessageId)? as usize)
             .build()?;
 
-        // Get or spawn a new qbft instance. This will return the sender that we can use to send
-        // new messages to the specific instance
-        let sender = D::get_or_spawn_instance(self, id.clone(), deadline);
+        // Once the duty has expired, a missing registry entry should fail immediately instead of
+        // creating a duplicate local timeout path. However, if an entry is still registered,
+        // preserve the current reuse path. In the intended `#719` case this lets late callers
+        // keep reusing a decided instance until the cleaner removes it.
+        let sender = if self.current_slot_exceeds_deadline(deadline) {
+            let Some(sender) = D::get_existing_instance(self, &id) else {
+                return Ok(Completed::TimedOut);
+            };
+            sender
+        } else {
+            // Get or spawn a new qbft instance. This will return the sender that we can use to
+            // send new messages to the specific instance.
+            D::get_or_spawn_instance(self, id.clone(), deadline)
+        };
         self.processor.urgent_consensus.send_immediate(
             move |drop_on_finish: DropOnFinish| {
                 // A message to initialize this instance
@@ -465,6 +482,15 @@ pub trait QbftDecidable<E: EthSpec>: QbftData<Hash = Hash256> + Send + Sync + 's
     type Id: Hash + Eq + Send + Debug + Clone;
 
     fn get_map<S: SlotClock>(manager: &QbftManager<E, S>) -> &Map<Self::Id, Self>;
+
+    fn get_existing_instance<S: SlotClock>(
+        manager: &QbftManager<E, S>,
+        id: &Self::Id,
+    ) -> Option<UnboundedSender<QbftMessage<Self>>> {
+        Self::get_map(manager)
+            .get(id)
+            .map(|managed| managed.sender.clone())
+    }
 
     fn get_or_spawn_instance<S: SlotClock + Clone + 'static>(
         manager: &QbftManager<E, S>,
