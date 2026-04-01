@@ -30,7 +30,7 @@ use tokio::{
         mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
         oneshot,
     },
-    time::{Instant, sleep},
+    time::{Instant, sleep, timeout},
 };
 use tracing::{debug, error};
 use types::{EthSpec, Hash256, Slot};
@@ -1346,6 +1346,133 @@ mod manager_tests {
             manager.beacon_vote_instances.len(),
             EXPECTED_REGISTERED_INSTANCES,
             "Completed instance should remain registered until its deadline expires"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    // Test that once a committee duty is already past its beacon-chain deadline, a late local
+    // caller receives an immediate timeout instead of spawning a duplicate shadow instance.
+    async fn test_decide_instance_after_deadline_returns_immediate_timeout_without_spawning() {
+        const DUTY_SLOT: u64 = 0;
+        const SLOT_PAST_DEADLINE: u64 = 64;
+        const EXPECTED_REGISTERED_INSTANCES: usize = 0;
+
+        let setup = setup_test(0);
+        let clock = setup.clock.clone();
+
+        let config = processor::Config {
+            max_workers: 4,
+            queue_size: Default::default(),
+        };
+        let senders = processor::spawn(config, setup.executor);
+        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+
+        let manager = QbftManager::<types::MainnetEthSpec, _>::new(
+            senders,
+            OperatorId(1).into(),
+            setup.clock,
+            Arc::new(MockMessageSender::new(network_tx, OperatorId(1))),
+            NonZeroU64::new(32).expect("slots_per_epoch is non-zero"),
+            Arc::new(ForkSchedule::new(
+                Fork::Boole,
+                DomainType::default(),
+                "test",
+            )),
+        )
+        .expect("manager creation should succeed");
+
+        let (data, id) = generate_test_data(DUTY_SLOT as usize);
+        let committee_members = IndexSet::from([1, 2, 3, 4].map(OperatorId));
+
+        // Move the local clock beyond the committee deadline before asking the manager to decide.
+        clock.set_slot(SLOT_PAST_DEADLINE);
+
+        let result = timeout(
+            Duration::from_secs(1),
+            manager.decide_instance(
+                id.clone(),
+                data,
+                Box::new(NoDataValidation),
+                TimeoutMode::SlotTime {
+                    instance_start_time: Instant::now(),
+                },
+                &committee_members,
+            ),
+        )
+        .await;
+
+        assert!(
+            matches!(result, Ok(Ok(Completed::TimedOut))),
+            "expired decide_instance call should return an immediate timeout"
+        );
+        assert_eq!(
+            manager.beacon_vote_instances.len(),
+            EXPECTED_REGISTERED_INSTANCES,
+            "expired decide_instance call must not register a shadow instance"
+        );
+        assert!(
+            manager.beacon_vote_instances.get(&id).is_none(),
+            "expired decide_instance call must not leave any committee entry behind"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    // Test that an already-registered decided instance still serves a late caller even after the
+    // slot clock has moved past the deadline, as long as cleanup has not removed the entry yet.
+    async fn test_existing_decided_instance_still_serves_late_caller_after_deadline_before_cleanup()
+    {
+        const DUTY_SLOT: u64 = 0;
+        const SLOT_PAST_DEADLINE: u64 = 64;
+        const EXPECTED_REGISTERED_INSTANCES: usize = 1;
+
+        let setup = setup_test(0);
+        let clock = setup.clock.clone();
+        let (data, id) = generate_test_data(DUTY_SLOT as usize);
+        let committee_members = IndexSet::from([1, 2, 3, 4].map(OperatorId));
+
+        let mut context = TestContext::<types::MainnetEthSpec, BeaconVote>::new(
+            setup.clock,
+            setup.executor,
+            CommitteeSize::Four,
+            vec![(data.clone(), id.clone())],
+        )
+        .await;
+
+        context.verify_consensus().await;
+
+        let manager = context
+            .tester
+            .managers
+            .get(&OperatorId(1))
+            .expect("manager should exist")
+            .clone();
+
+        // Move the slot clock past the deadline without advancing Tokio time, so the cleaner has
+        // not yet removed the decided entry.
+        clock.set_slot(SLOT_PAST_DEADLINE);
+
+        let result = timeout(
+            Duration::from_secs(1),
+            manager.decide_instance(
+                id.clone(),
+                data.clone(),
+                Box::new(NoDataValidation),
+                TimeoutMode::SlotTime {
+                    instance_start_time: Instant::now(),
+                },
+                &committee_members,
+            ),
+        )
+        .await;
+
+        assert!(
+            matches!(result, Ok(Ok(Completed::Success(_)))),
+            "an expired duty should still reuse an existing decided entry before cleanup runs"
+        );
+        assert_eq!(
+            manager.beacon_vote_instances.len(),
+            EXPECTED_REGISTERED_INSTANCES,
+            "reusing a decided entry should not create or remove committee registrations"
         );
     }
 
